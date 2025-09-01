@@ -1,0 +1,23 @@
+# PDF 처리
+PyMuPDF==1.26.4
+
+# 이미지 처리 및 컴퓨터 비전
+opencv-python==4.8.1.78
+scikit-image==0.25.2
+Pillow==11.3.0
+
+# OCR (광학 문자 인식)
+pytesseract==0.3.10
+
+# 수치 계산
+numpy==1.26.4
+
+# GUI (tkinter는 Python 내장 모듈이므로 별도 설치 불필요)
+
+# 개발 및 디버깅 도구 (선택사항)
+# pytest==7.4.3
+# black==23.11.0
+# flake8==6.1.0
+
+# Windows에서 한글 폰트 지원 (선택사항)
+# matplotlib==3.7.2
