@@ -20,6 +20,7 @@ main_a = Analysis(
         ('templates.json', '.'),
         ('README.md', '.'),
         ('requirements.txt', '.'),
+        ('vendor/tesseract', 'tesseract'),
     ],
     hiddenimports=[
         'tkinter',
@@ -57,7 +58,7 @@ roi_a = Analysis(
     datas=[],
     hiddenimports=[
         'tkinter',
-        'tkinter.ttk', 
+        'tkinter.ttk',
         'tkinter.filedialog',
         'tkinter.messagebox',
         'tkinter.simpledialog',
@@ -85,7 +86,7 @@ validator_a = Analysis(
     hiddenimports=[
         'tkinter',
         'tkinter.ttk',
-        'tkinter.filedialog', 
+        'tkinter.filedialog',
         'tkinter.messagebox',
         'tkinter.scrolledtext',
         'PIL._tkinter_finder',
@@ -132,7 +133,7 @@ main_exe = EXE(
     version='version_info.txt' if os.path.exists('version_info.txt') else None,
 )
 
-roi_pyz = PYZ(roi_a.pure, roi_a.zipped_data, cipher=block_cipher)  
+roi_pyz = PYZ(roi_a.pure, roi_a.zipped_data, cipher=block_cipher)
 roi_exe = EXE(
     roi_pyz,
     roi_a.scripts,
@@ -159,7 +160,7 @@ roi_exe = EXE(
 validator_pyz = PYZ(validator_a.pure, validator_a.zipped_data, cipher=block_cipher)
 validator_exe = EXE(
     validator_pyz,
-    validator_a.scripts, 
+    validator_a.scripts,
     validator_a.binaries,
     validator_a.zipfiles,
     validator_a.datas,
