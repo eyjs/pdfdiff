@@ -161,7 +161,7 @@ class PDFValidator:
         for result in self.validation_results:
             if result["status"] != "OK":
                 page = pdf_doc[result["page"]]; rect = fitz.Rect(result["coords"])
-                color = (1, 0, 0) if result["status"] == "ERROR" else (1, 0.8, 0)
+                color = (1, 1, 0) if result["status"] == "ERROR" else (1, 0.8, 0)
                 highlight = page.add_highlight_annot(rect); highlight.set_colors({"stroke": color}); highlight.update()
         pdf_doc.save(output_path, garbage=4, deflate=True, clean=True); pdf_doc.close()
 
