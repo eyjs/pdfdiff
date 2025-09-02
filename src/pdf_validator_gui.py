@@ -89,9 +89,18 @@ class PDFValidator:
 
     def _validate_single_roi(self, original_doc, filled_doc, field_name, roi_info):
         page_num = roi_info.get("page", 0); coords = roi_info.get("coords")
-        method = roi_info.get("method", "ocr"); threshold = roi_info.get("threshold", 500)
-        anchor_coords = roi_info.get("anchor_coords")
+        method = roi_info.get("method", "ocr"); original_threshold = roi_info.get("threshold", 500)
+        anchor_coords = roi_info.get("anchor_coords")  # None 허용
         result = {"field_name": field_name, "page": page_num, "coords": coords, "status": "OK", "message": ""}
+        
+        # 임계값 스마트 보정 (중요!)
+        threshold = original_threshold
+        if method == "ocr" and original_threshold > 50:
+            threshold = 1  # OCR은 1글자만 있어도 통과
+            result["message"] += f"[임계보정:{original_threshold}→{threshold}] "
+        elif method == "contour" and original_threshold < 10:
+            threshold = 100  # Contour는 100픽셀 이상
+            result["message"] += f"[임계보정:{original_threshold}→{threshold}] "
         if not coords or not anchor_coords:
             result["status"] = "ERROR"; result["message"] = "좌표/앵커 정보 없음"; return result
 
@@ -133,13 +142,30 @@ class PDFValidator:
             if method == "contour":
                 diff = cv2.absdiff(original_gray, filled_gray); binary = cv2.threshold(diff, 30, 255, cv2.THRESH_BINARY)[1]
                 contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                val = sum(cv2.contourArea(c) for c in contours)
-                if val < threshold: result["status"] = "DEFICIENT"; result["message"] += f"내용 미흡 [감지 면적: {int(val)} / 필요: {threshold}]"
-                else: result["message"] += f"통과 [감지 면적: {int(val)}]"
+                total_area = sum(cv2.contourArea(c) for c in contours)
+                # Contour 디버깅 정보 추가
+                contour_count = len(contours)
+                largest_area = max([cv2.contourArea(c) for c in contours]) if contours else 0
+                
+                if total_area < threshold: 
+                    result["status"] = "DEFICIENT"
+                    result["message"] += f"Contour미흡 면적:{int(total_area)}<{threshold} 윤곽:{contour_count}개 최대:{int(largest_area)}"
+                else: 
+                    result["message"] += f"Contour통과 면적:{int(total_area)}>={threshold} 윤곽:{contour_count}개"
             elif method == "ocr":
-                text = pytesseract.image_to_string(filled_roi, lang='kor+eng'); val = re.sub(r'[\s\W_]+', '', text)
-                if len(val) < threshold: result["status"] = "DEFICIENT"; result["message"] += f"내용 미흡 [인식 글자 수: {len(val)} / 필요: {threshold}]"
-                else: result["message"] += f"통과 [인식 텍스트: '{val}']"
+                # OCR 디버깅 강화 - 원본과 정제 텍스트 모두 표시
+                raw_text = pytesseract.image_to_string(filled_roi, lang='kor+eng')
+                clean_text = re.sub(r'[\s\W_]+', '', raw_text)
+                
+                # 디버깅 정보 상세 출력
+                debug_raw = raw_text.replace('\n', '\\n').replace('\r', '\\r').replace('\t', '\\t')[:30]
+                debug_clean = clean_text[:20] if clean_text else '(빈값)'
+                
+                if len(clean_text) < threshold: 
+                    result["status"] = "DEFICIENT"
+                    result["message"] += f"OCR미흡 {len(clean_text)}자<{threshold}자 원본:'{debug_raw}' 정제:'{debug_clean}'"
+                else: 
+                    result["message"] += f"OCR통과 {len(clean_text)}자>={threshold}자 내용:'{debug_clean}'"
         except Exception as e:
             result["status"] = "ERROR"; result["message"] = f"검증 오류: {str(e)}"
         return result
@@ -167,7 +193,7 @@ class PDFValidator:
 
 class PDFValidatorGUI:
     def __init__(self, root):
-        self.root = root; self.root.title("2단계: ROI 검증 도구 (v14.0)"); self.root.geometry("1200x900")
+        self.root = root; self.root.title("2단계: ROI 검증 도구 (v15.0 - OCR 디버깅 강화)"); self.root.geometry("1200x900")
         self.templates, self.selected_template, self.target_path, self.validator = {}, None, "", None
         self.original_pdf_doc, self.annotated_pdf_doc, self.current_page_num, self.total_pages = None, None, 0, 0
         self.left_photo, self.right_photo = None, None

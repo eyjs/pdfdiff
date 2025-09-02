@@ -29,6 +29,27 @@
 - **템플릿별 정리**: 각 템플릿에 대한 결과를 별도 폴더에 저장
 - **성공/실패 구분**: 검증 결과에 따라 자동 분류
 
+## ⚠️ 중요: 한글 OCR 설정 필수!
+
+**첫 실행 전에 반드시 한글 언어팩을 설치해야 합니다:**
+
+### 🔧 자동 설치 (권장)
+```bash
+# 1. 자동 설치 스크립트 실행
+install_korean_ocr.bat
+
+# 2. 또는 Python 스크립트 실행  
+python setup_tesseract_korean.py
+
+# 3. 설치 확인
+python check_tesseract.py
+```
+
+### 📁 수동 설치
+다음 파일들을 `vendor/tesseract/tessdata/` 폴더에 저장:
+- [영어 언어팩](https://github.com/tesseract-ocr/tessdata/raw/main/eng.traineddata)
+- [한글 언어팩](https://github.com/tesseract-ocr/tessdata/raw/main/kor.traineddata)
+
 ## 🎯 사용 방법
 
 ### **방법 1: 통합 런처 사용 (권장)**
@@ -40,8 +61,8 @@ python enhanced_launcher.py
 ### **방법 2: 개별 실행**
 
 ```bash
-python src/roi_selector.py      # 템플릿 설정
-python src/pdf_validator_gui.py # 서류 검증
+python src/template_manager.py     # 템플릿 설정
+python src/pdf_validator_gui.py    # 서류 검증
 ```
 
 ## 📁 새로운 폴더 구조

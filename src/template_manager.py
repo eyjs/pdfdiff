@@ -116,17 +116,31 @@ class TemplateManager:
 
     def get_roi_info_and_save(self, roi_coords, anchor_coords):
         dialog = tk.Toplevel(self.root); dialog.title("ROI 정보 입력"); dialog.transient(self.root); dialog.grab_set()
-        name_var = tk.StringVar(); method_var = tk.StringVar(value="contour"); threshold_var = tk.IntVar(value=500)
+        name_var = tk.StringVar(); method_var = tk.StringVar(value="ocr"); threshold_var = tk.IntVar(value=3)
+        
+        def update_threshold(*args):
+            """검증 방식에 따라 기본 임계값 자동 설정"""
+            if method_var.get() == "ocr":
+                threshold_var.set(3)  # OCR: 3글자 이상
+            else:  # contour
+                threshold_var.set(100)  # Contour: 100픽셀 이상
+        
+        method_var.trace('w', update_threshold)
 
         ttk.Label(dialog, text="이름:").pack(padx=10, pady=5)
         name_entry = ttk.Entry(dialog, textvariable=name_var); name_entry.pack(padx=10); name_entry.focus_set()
 
         ttk.Label(dialog, text="검증 방식:").pack(padx=10, pady=5)
-        ttk.Radiobutton(dialog, text="Contour (도형/서명)", variable=method_var, value="contour").pack(anchor=tk.W, padx=20)
-        ttk.Radiobutton(dialog, text="OCR (텍스트)", variable=method_var, value="ocr").pack(anchor=tk.W, padx=20)
+        ttk.Radiobutton(dialog, text="OCR (텍스트 - 기본 3글자)", variable=method_var, value="ocr").pack(anchor=tk.W, padx=20)
+        ttk.Radiobutton(dialog, text="Contour (도형/서명 - 기본 100픽셀)", variable=method_var, value="contour").pack(anchor=tk.W, padx=20)
 
         ttk.Label(dialog, text="임계값:").pack(padx=10, pady=5)
-        ttk.Entry(dialog, textvariable=threshold_var, width=10).pack(padx=10)
+        threshold_frame = ttk.Frame(dialog)
+        threshold_frame.pack(padx=10)
+        threshold_entry = ttk.Entry(threshold_frame, textvariable=threshold_var, width=10)
+        threshold_entry.pack(side=tk.LEFT)
+        self.threshold_info = ttk.Label(threshold_frame, text="(OCR: 글자 수, Contour: 픽셀 면적)", font=('Arial', 8))
+        self.threshold_info.pack(side=tk.LEFT, padx=5)
 
         def on_save():
             name = name_var.get().strip()
