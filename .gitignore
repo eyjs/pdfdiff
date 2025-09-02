@@ -1,30 +1,133 @@
-   1 # Byte-compiled / optimized / DLL files
-    2 __pycache__/
-    3 *.pyc
-    4 *.pyo
-    5 *.pyd
-    6 *.egg-info/
-    7 .Python
-    8
-    9 # PyInstaller
-   10 # https://pyinstaller.readthedocs.io/en/stable/usage.html#running-pyinstaller-from-python-code
-   11 build/
-   12 dist/
-   13 *.spec
-   14
-   15 # Virtual environment
-   16 venv/
-   17 .venv/
-   18 env/
-   19
-   20 # Editors and IDEs
-   21 .vscode/
-   22 .idea/
-   23 *.sublime-project
-   24 *.sublime-workspace
-   25
-   26 # OS generated files
-   27 .DS_Store
-   28 .Trashes
-   29 Thumbs.db
-   30 ehthumbs.db
+# Python 바이트 코드 및 최적화 파일
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+*.pyo
+*.pyd
+
+# 배포 관련 파일
+build/
+dist/
+*.spec
+*.egg-info/
+.Python
+
+# 가상 환경
+venv/
+.venv/
+env/
+.env/
+Scripts/
+pyvenv.cfg
+
+# IDE 및 에디터
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+.spyderproject
+.spyproject
+
+# OS 생성 파일
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# 임시 파일 및 로그
+*.log
+*.log.*
+temp_*.pdf
+temp_annotated_*.pdf
+*_temp.pdf
+debug_*.txt
+error_*.txt
+*.tmp
+*.temp
+
+# 테스트 및 커버리지
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# 문서 빌드
+docs/_build/
+.readthedocs.yml
+mkdocs.yml
+
+# 배포 및 패키징
+deployment/
+portable/
+*.zip
+*.exe
+*.msi
+installer.nsi
+LICENSE.txt
+설치가이드.md
+
+# 개발 전용 파일
+run_tests.py
+apply_enhancements.py
+debug_integration.py
+integration_patch.py
+clean_for_deployment.py
+build_for_windows.py
+create_zip_package.py
+
+# 출력 파일 (선택적으로 제외)
+output/temp_*.pdf
+output/review_*.pdf
+output/debug_*/
+output/테스트*/
+output/템플릿*/
+
+# Git 관련
+.git/
+.gitattributes
+
+# Node.js (혹시 프론트엔드 도구 사용 시)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# 백업 파일
+*.bak
+*.backup
+*.orig
+
+# 압축 파일
+*.7z
+*.dmg
+*.gz
+*.iso
+*.jar
+*.rar
+*.tar
+*.zip
+
+# 데이터베이스
+*.db
+*.sqlite
+*.sqlite3
+
+# 설정 파일 (민감한 정보 포함 가능)
+.env
+.env.local
+.env.production
+config.json
+secrets.json
