@@ -1,5 +1,4 @@
-# src/pdf_validator_gui.py (v4.3 최종 - 상세 로그 기능 탑재)
-
+import pytesseract
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
 import json
@@ -15,7 +14,12 @@ import re
 import datetime
 import time
 
-# src/pdf_validator_gui.py 파일의 PDFValidator 클래스 전체를 아래 코드로 교체
+if getattr(sys, 'frozen', False):
+    # .exe 파일일 경우, tesseract.exe의 경로를 프로그램 내부 폴더로 지정
+    application_path = os.path.dirname(sys.executable)
+    tesseract_path = os.path.join(application_path, 'tesseract', 'tesseract.exe')
+    if os.path.exists(tesseract_path):
+        pytesseract.pytesseract.tesseract_cmd = tesseract_path
 
 class PDFValidator:
     """
