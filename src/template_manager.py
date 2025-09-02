@@ -117,14 +117,14 @@ class TemplateManager:
     def get_roi_info_and_save(self, roi_coords, anchor_coords):
         dialog = tk.Toplevel(self.root); dialog.title("ROI 정보 입력"); dialog.transient(self.root); dialog.grab_set()
         name_var = tk.StringVar(); method_var = tk.StringVar(value="ocr"); threshold_var = tk.IntVar(value=3)
-        
+
         def update_threshold(*args):
             """검증 방식에 따라 기본 임계값 자동 설정"""
             if method_var.get() == "ocr":
                 threshold_var.set(3)  # OCR: 3글자 이상
             else:  # contour
                 threshold_var.set(100)  # Contour: 100픽셀 이상
-        
+
         method_var.trace('w', update_threshold)
 
         ttk.Label(dialog, text="이름:").pack(padx=10, pady=5)
