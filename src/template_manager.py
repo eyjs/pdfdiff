@@ -10,7 +10,7 @@ from PIL import Image, ImageTk
 class TemplateManager:
     def __init__(self, root):
         self.root = root
-        self.root.title("템플릿 관리자 (v9.0 - 자동 ROI 생성)")
+        self.root.title("템플릿 관리자 (v10.0 - 라벨 기반 앵커 시스템)")
         self.root.geometry("1200x850")
 
         self.pdf_doc, self.current_page, self.rois = None, 0, {}
@@ -55,9 +55,9 @@ class TemplateManager:
         self.roi_listbox.pack(fill=tk.BOTH, expand=True)
         self.roi_listbox.bind("<Double-1>", self.delete_selected_roi)
 
-        status_frame = ttk.LabelFrame(right_panel, text="사용법", padding=5)
+        status_frame = ttk.LabelFrame(right_panel, text="개선된 사용법", padding=5)
         status_frame.pack(fill=tk.X, pady=(5,0))
-        ttk.Label(status_frame, text="1. PDF 위에서 기준점(앵커)을 드래그하세요.\n2. 자동으로 생성된 영역의 정보를 입력하세요.", justify=tk.LEFT).pack(anchor=tk.W)
+        ttk.Label(status_frame, text="1. PDF 위에서 검증할 영역(ROI)을 드래그하세요.\n2. 자동으로 좌측 라벨을 앵커로 설정합니다.\n3. 앵커 품질이 낮으면 대안을 제시합니다.", justify=tk.LEFT).pack(anchor=tk.W)
 
 
     def get_display_matrix(self):
@@ -90,29 +90,122 @@ class TemplateManager:
         self.canvas.delete(self.current_rect); self.current_rect = None
         if abs(x1 - x2) < 5 or abs(y1 - y2) < 5: return
 
-        # --- 핵심 로직: 자동 ROI 생성 ---
-        # 1. 드래그한 영역을 앵커로 설정
-        anchor_coords = self.screen_to_pdf_coords(x1, y1, x2, y2)
-
-        # 2. 앵커를 기준으로 1.3배 큰 ROI 자동 계산
-        width = anchor_coords[2] - anchor_coords[0]
-        height = anchor_coords[3] - anchor_coords[1]
-        center_x = (anchor_coords[0] + anchor_coords[2]) / 2
-        center_y = (anchor_coords[1] + anchor_coords[3]) / 2
-
-        scale = 1.3
-        new_width = width * scale
-        new_height = height * scale
-
-        roi_coords = [
-            center_x - new_width / 2,
-            center_y - new_height / 2,
-            center_x + new_width / 2,
-            center_y + new_height / 2,
-        ]
-
-        # 3. 정보 입력창 호출
+        # --- 개선된 로직: 라벨 기반 앵커 시스템 ---
+        # 1. 드래그한 영역을 ROI로 설정
+        roi_coords = self.screen_to_pdf_coords(x1, y1, x2, y2)
+        
+        # 2. ROI 좌측의 라벨 영역을 앵커로 자동 생성
+        anchor_coords = self.generate_label_anchor(roi_coords)
+        
+        # 3. 앵커 품질 검사 및 대안 제시
+        anchor_quality = self.check_anchor_quality(anchor_coords)
+        if anchor_quality < 10:  # 키포인트 10개 미만
+            # 대안 앵커 제시
+            alternative_anchors = self.suggest_alternative_anchors(roi_coords)
+            if alternative_anchors:
+                anchor_coords = self.select_best_anchor(alternative_anchors)
+                
+        # 4. 정보 입력창 호출
         self.get_roi_info_and_save(roi_coords, anchor_coords)
+    
+    def generate_label_anchor(self, roi_coords):
+        """ROI 좌측 라벨 영역을 앵커로 자동 생성"""
+        roi_left, roi_top, roi_right, roi_bottom = roi_coords
+        
+        # ROI 좌측 100px 영역을 라벨 앵커로 설정
+        label_width = min(100, roi_left)  # 페이지 경계 고려
+        
+        anchor_coords = [
+            max(0, roi_left - label_width),  # 페이지 경계 제한
+            roi_top - 5,    # ROI보다 약간 위에서 시작
+            roi_left - 5,   # ROI 직전까지
+            roi_bottom + 5  # ROI보다 약간 아래까지
+        ]
+        
+        return anchor_coords
+    
+    def check_anchor_quality(self, anchor_coords):
+        """앵커 영역의 특징점 품질 검사"""
+        if not self.pdf_doc:
+            return 0
+            
+        try:
+            # 앵커 영역 이미지 추출
+            page = self.pdf_doc[self.current_page]
+            rect = fitz.Rect(anchor_coords)
+            mat = fitz.Matrix(2.0, 2.0)  # 고해상도로 추출
+            pix = page.get_pixmap(matrix=mat, clip=rect, alpha=False)
+            
+            import cv2
+            import numpy as np
+            
+            img_array = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
+            gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+            
+            # AKAZE로 키포인트 검출
+            detector = cv2.AKAZE_create()
+            kp, des = detector.detectAndCompute(gray, None)
+            
+            keypoint_count = len(kp) if kp else 0
+            print(f"[앵커 품질] 키포인트: {keypoint_count}개")
+            
+            return keypoint_count
+            
+        except Exception as e:
+            print(f"[앵커 품질] 검사 실패: {e}")
+            return 0
+    
+    def suggest_alternative_anchors(self, roi_coords):
+        """ROI 주변의 대안 앵커 후보들 제시"""
+        alternatives = []
+        
+        # 1. 상단 영역 (헤더/제목)
+        page_width = self.pdf_doc[self.current_page].rect.width
+        header_anchor = [0, 0, page_width, roi_coords[1] - 20]
+        
+        # 2. 하단 영역 (푸터)
+        page_height = self.pdf_doc[self.current_page].rect.height
+        footer_anchor = [0, roi_coords[3] + 20, page_width, page_height]
+        
+        # 3. 우측 영역
+        right_anchor = [
+            roi_coords[2] + 10,
+            roi_coords[1] - 10,
+            min(roi_coords[2] + 120, page_width),
+            roi_coords[3] + 10
+        ]
+        
+        # 4. 확장된 좌측 영역
+        extended_left_anchor = [
+            max(0, roi_coords[0] - 200),
+            roi_coords[1] - 20,
+            roi_coords[0] - 5,
+            roi_coords[3] + 20
+        ]
+        
+        candidates = [
+            {"name": "헤더 영역", "coords": header_anchor},
+            {"name": "확장 좌측", "coords": extended_left_anchor},
+            {"name": "우측 영역", "coords": right_anchor},
+            {"name": "푸터 영역", "coords": footer_anchor}
+        ]
+        
+        # 각 후보의 품질 평가
+        for candidate in candidates:
+            quality = self.check_anchor_quality(candidate["coords"])
+            candidate["quality"] = quality
+            print(f"[대안 앵커] {candidate['name']}: {quality}개 키포인트")
+        
+        # 품질 순으로 정렬
+        return sorted(candidates, key=lambda x: x["quality"], reverse=True)
+    
+    def select_best_anchor(self, alternatives):
+        """최고 품질의 앵커 선택"""
+        if alternatives and alternatives[0]["quality"] > 5:
+            best = alternatives[0]
+            print(f"[최적 앵커] '{best['name']}' 선택 ({best['quality']}개 키포인트)")
+            return best["coords"]
+        return None
 
     def get_roi_info_and_save(self, roi_coords, anchor_coords):
         dialog = tk.Toplevel(self.root); dialog.title("ROI 정보 입력"); dialog.transient(self.root); dialog.grab_set()
