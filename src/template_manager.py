@@ -219,6 +219,17 @@ class TemplateManager:
         default_name=os.path.splitext(os.path.basename(self.current_pdf_path))[0]
         template_name=simpledialog.askstring("템플릿 저장","템플릿 이름:", parent=self.root, initialvalue=default_name)
         if not template_name: return
+
+        # 디버깅: 저장 직전의 첫 번째 ROI 좌표 출력
+        if self.rois:
+            first_roi_name = list(self.rois.keys())[0]
+            first_roi_data = self.rois[first_roi_name]
+            print("--- DEBUG: Saving coordinates in template_manager.py ---")
+            print(f"ROI Name: {first_roi_name}")
+            print(f"  - coords: {first_roi_data.get('coords')}")
+            print(f"  - anchor_coords: {first_roi_data.get('anchor_coords')}")
+            print("---------------------------------------------------------")
+
         self.templates[template_name]={'original_pdf_path':self.current_pdf_path,'rois':self.rois}
         try:
             with open("templates.json",'w',encoding='utf-8') as f: json.dump(self.templates,f,ensure_ascii=False,indent=2)

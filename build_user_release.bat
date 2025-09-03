@@ -109,7 +109,6 @@ echo "Building portable EXE with Tesseract..."
     --hidden-import "skimage.metrics" ^
     enhanced_launcher.py
 
-
 if errorlevel 1 (
     echo "[ERROR] Build failed"
     echo.

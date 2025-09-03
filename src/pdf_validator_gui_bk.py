@@ -23,54 +23,29 @@ class DocumentLayoutDetector:
         self.debug = True
 
     def find_content_bounding_box(self, img):
-        """문서의 실제 컨텐츠 영역 찾기 (프로젝션 프로파일 기반)"""
-        # 1. 이진화
-        # 배경이 흰색(255)이고 내용이 검은색(0)이라고 가정
-        if len(img.shape) == 3:
-            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        else:
-            gray = img
-        
-        # 적응형 이진화로 그림자 등 음영 제거
-        binary = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+        """문서의 실제 컨텐츠 영역 찾기 (여백 제외)"""
+        # 적응형 이진화로 텍스트 영역 강조
+        binary = cv2.adaptiveThreshold(img, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
                                      cv2.THRESH_BINARY_INV, 11, 2)
 
-        # 2. 노이즈 제거 (선택적이지만 권장)
-        kernel = np.ones((3,3),np.uint8)
-        morphed = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
+        # 모폴로지 연산으로 텍스트 연결
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
+        dilated = cv2.dilate(binary, kernel, iterations=2)
 
-        # 3. 프로젝션 프로파일 계산
-        # 수직 프로젝션 (x축 따라 합산) -> y좌표 찾기
-        vertical_projection = np.sum(morphed, axis=1)
-        # 수평 프로젝션 (y축 따라 합산) -> x좌표 찾기
-        horizontal_projection = np.sum(morphed, axis=0)
+        # 컨투어 찾기
+        contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-        # 4. 내용이 있는 시작/끝 지점 찾기
-        # 0이 아닌 값을 가진 첫번째/마지막 인덱스
-        y_coords = np.where(vertical_projection > 0)[0]
-        x_coords = np.where(horizontal_projection > 0)[0]
+        if not contours:
+            return None
 
-        if len(x_coords) == 0 or len(y_coords) == 0:
-            # 내용이 전혀 없으면 전체 이미지 영역 반환
-            if self.debug:
-                print(f"[컨텐츠 영역] 감지 실패, 전체 페이지 사용")
-            return [0, 0, img.shape[1], img.shape[0]]
-
-        y_min, y_max = y_coords[0], y_coords[-1]
-        x_min, x_max = x_coords[0], x_coords[-1]
-        
-        # 5. 여백 추가 (너무 타이트하게 자르지 않도록)
-        padding = 10 
-        x_min = max(0, x_min - padding)
-        y_min = max(0, y_min - padding)
-        x_max = min(img.shape[1], x_max + padding)
-        y_max = min(img.shape[0], y_max + padding)
+        # 모든 컨텐츠를 포함하는 바운딩 박스
+        all_contours = np.vstack(contours)
+        x, y, w, h = cv2.boundingRect(all_contours)
 
         if self.debug:
-            w, h = x_max - x_min, y_max - y_min
-            print(f"[컨텐츠 영역] 감지: ({x_min}, {y_min}, {x_max}, {y_max}) 크기: {w}×{h}")
+            print(f"[컨텐츠 영역] 감지: ({x}, {y}, {x+w}, {y+h}) 크기: {w}×{h}")
 
-        return [x_min, y_min, x_max, y_max]
+        return [x, y, x + w, y + h]
 
     def detect_document_rotation(self, img):
         """문서 기울기 자동 감지 (Hough 변환 이용)"""
@@ -162,33 +137,28 @@ class DocumentLayoutDetector:
         }
 
 def setup_tesseract():
-    """배포(frozen) 및 개발 환경 모두에서 Tesseract 경로를 안정적으로 설정합니다."""
-    # PyInstaller로 생성된 임시 폴더(frozen)인지 확인
-    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
-        # EXE로부터 추출된 임시 폴더의 경로 (one-file mode)
-        application_path = sys._MEIPASS
+    """배포 및 개발 환경 모두에서 Tesseract 및 언어 데이터를 안정적으로 찾는 함수"""
+    tesseract_dir = None
+    if getattr(sys, 'frozen', False):
+        application_path = os.path.dirname(sys.executable)
+        for folder in ['vendor/tesseract', 'tesseract']:
+            path = os.path.join(application_path, folder)
+            if os.path.exists(os.path.join(path, 'tesseract.exe')):
+                tesseract_dir = path
+                break
     else:
-        # 일반 Python 스크립트 실행 환경 또는 one-folder mode
-        # __file__은 현재 스크립트(pdf_validator_gui.py)의 경로
-        # os.path.dirname()으로 스크립트가 있는 폴더(src)를 얻음
-        # '..'을 통해 상위 폴더(프로젝트 루트)로 이동
-        application_path = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+        script_path = os.path.dirname(os.path.abspath(__file__))
+        path = os.path.join(script_path, '..', 'vendor', 'tesseract')
+        if os.path.exists(os.path.join(path, 'tesseract.exe')):
+            tesseract_dir = path
 
-    # Tesseract 실행 파일 경로 조합
-    tesseract_cmd_path = os.path.join(application_path, 'vendor', 'tesseract', 'tesseract.exe')
-    tessdata_dir = os.path.join(application_path, 'vendor', 'tesseract', 'tessdata')
-
-    # 경로 존재 여부 확인 및 설정
-    if os.path.exists(tesseract_cmd_path) and os.path.exists(tessdata_dir):
-        pytesseract.pytesseract.tesseract_cmd = tesseract_cmd_path
-        os.environ['TESSDATA_PREFIX'] = tessdata_dir
-        return True
-    else:
-        # GUI 환경에서는 직접적인 print보다 로그나 메시지 박스로 처리하는 것이 더 적합합니다.
-        # print(f"🔥 Tesseract 경로 설정 실패. 다음 경로를 확인하세요:")
-        # print(f"  - 실행 파일: {tesseract_cmd_path} (존재: {os.path.exists(tesseract_cmd_path)})")
-        # print(f"  - 데이터 폴더: {tessdata_dir} (존재: {os.path.exists(tessdata_dir)})")
-        return False
+    if tesseract_dir:
+        pytesseract.pytesseract.tesseract_cmd = os.path.join(tesseract_dir, 'tesseract.exe')
+        tessdata_path = os.path.join(tesseract_dir, 'tessdata')
+        if os.path.exists(tessdata_path):
+            os.environ['TESSDATA_PREFIX'] = tessdata_path
+            return True
+    return False
 
 TESSERACT_CONFIGURED = setup_tesseract()
 
@@ -227,12 +197,11 @@ class PDFValidator:
         if grayscale: return cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
         return cv2.cvtColor(img_array, cv2.COLOR_RGBA2RGB) if pix.n == 4 else img_array
 
-    def _find_anchor_affine_robust(self, page_img_gray, anchor_img_gray):
-        """특징점 기반의 안정적인 아핀 변환을 찾습니다."""
+    def _find_anchor_homography_robust(self, page_img_gray, anchor_img_gray):
         anchor_processed = self._preprocess_for_features(anchor_img_gray)
         page_processed = self._preprocess_for_features(page_img_gray)
 
-        best_affine_matrix, best_match_count = None, 0
+        best_homography, best_match_count = None, 0
         for detector in self.detectors:
             try:
                 kp_anchor, des_anchor = detector.detectAndCompute(anchor_processed, None)
@@ -252,22 +221,19 @@ class PDFValidator:
                 if len(good_matches) >= 10:
                     src_pts = np.float32([kp_anchor[m.queryIdx].pt for m in good_matches]).reshape(-1, 1, 2)
                     dst_pts = np.float32([kp_page[m.trainIdx].pt for m in good_matches]).reshape(-1, 1, 2)
-                    
-                    # 아핀 변환 계산
-                    affine_matrix, mask = cv2.estimateAffine2D(src_pts, dst_pts, method=cv2.RANSAC, ransacReprojThreshold=5.0)
-                    
-                    if affine_matrix is not None:
+                    H, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
+                    if H is not None:
                         inlier_count = np.sum(mask)
                         if inlier_count > best_match_count:
-                            best_affine_matrix, best_match_count = affine_matrix, inlier_count
+                            best_homography, best_match_count = H, inlier_count
             except cv2.error:
                 continue
-        return best_affine_matrix
+        return best_homography
 
     def _find_anchor_template_matching(self, page_img_gray, anchor_img_gray):
         result = cv2.matchTemplate(page_img_gray, anchor_img_gray, cv2.TM_CCOEFF_NORMED)
         _, max_val, _, max_loc = cv2.minMaxLoc(result)
-        if max_val > 0.55: # 임계값 하향 조정 (0.6 -> 0.55)
+        if max_val > 0.6:
             return max_loc
 
     def _enhanced_handwriting_ocr(self, image):
@@ -373,7 +339,7 @@ class PDFValidator:
             gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY) if len(image.shape) == 3 else image
 
             # PSM 6: 단일 균일 텍스트 블록
-            custom_config = r'--oem 3 --psm 6 -c tessedit_char_whitelist=0123456789가-히ㄱ-ㅣㆍ-ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
+            custom_config = r'--oem 3 --psm 6 -c tessedit_char_whitelist=0123456789가-히ㄱ-ㅣㆍ-�ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
             raw_text = pytesseract.image_to_string(gray, lang='kor+eng', config=custom_config)
             clean_text = re.sub(r'[\s\W_]+', '', raw_text)
             results.append({
@@ -426,7 +392,7 @@ class PDFValidator:
             final = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
 
             # PSM 6 + 문자 제한
-            custom_config = r'--oem 3 --psm 6 -c tessedit_char_whitelist=0123456789가-히ㄱ-ㅣ쎍-ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
+            custom_config = r'--oem 3 --psm 6 -c tessedit_char_whitelist=0123456789가-히ㄱ-ㅣ쎍-�ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
             raw_text = pytesseract.image_to_string(final, lang='kor+eng', config=custom_config)
             clean_text = re.sub(r'[\s\W_]+', '', raw_text)
             results.append({
@@ -468,7 +434,6 @@ class PDFValidator:
         return corrected_coords
 
     def _validate_single_roi(self, original_doc, filled_doc, field_name, roi_info):
-        print(f"DEBUG: Validating '{field_name}' with roi_info: {roi_info}")  # 디버깅 로그 추가
         page_num = roi_info.get("page", 0); coords = roi_info.get("coords")
         method = roi_info.get("method", "ocr"); threshold = roi_info.get("threshold", 500)
         anchor_coords = roi_info.get("anchor_coords")
@@ -486,21 +451,8 @@ class PDFValidator:
             filled_page_img = self._get_full_page_image(filled_doc[page_num], render_scale)
 
             layout_offset = self.layout_detector.detect_layout_offset(original_page_img, filled_page_img)
-
-            # 안전장치: 유의미한 차이가 있을 때만 보정 적용
-            offset_threshold = 5  # 5픽셀 이상 이동
-            scale_threshold = 0.02  # 2% 이상 크기 변화
-
-            if abs(layout_offset['offset_x']) > offset_threshold or \
-               abs(layout_offset['offset_y']) > offset_threshold or \
-               abs(layout_offset['scale_x'] - 1.0) > scale_threshold or \
-               abs(layout_offset['scale_y'] - 1.0) > scale_threshold:
-                
-                result['message'] += f"[레이아웃보정:오프셋({layout_offset['offset_x']:.1f},{layout_offset['offset_y']:.1f})] "
-                layout_corrected_coords = self._apply_layout_correction(coords, layout_offset)
-            else:
-                result['message'] += "[레이아웃차이없음] "
-                layout_corrected_coords = coords # 원본 좌표 사용
+            layout_corrected_coords = self._apply_layout_correction(coords, layout_offset)
+            result['message'] += f"[레이아웃보정:오프셋({layout_offset['offset_x']:.1f},{layout_offset['offset_y']:.1f})] "
 
             # 2단계: 앵커 기반 미세 조정 (선택적)
             new_coords = layout_corrected_coords
@@ -515,59 +467,38 @@ class PDFValidator:
                     # 앵커도 레이아웃 보정 적용
                     layout_corrected_anchor_coords = self._apply_layout_correction(anchor_coords, layout_offset)
 
-                    # 1순위: 템플릿 매칭 시도
-                    top_left = self._find_anchor_template_matching(filled_page_img, anchor_img)
-                    if top_left:
-                        scale_factor = render_scale
-                        anchor_w = (layout_corrected_anchor_coords[2] - layout_corrected_anchor_coords[0]) * scale_factor
-                        anchor_h = (layout_corrected_anchor_coords[3] - layout_corrected_anchor_coords[1]) * scale_factor
+                    homography = self._find_anchor_homography_robust(filled_page_img, anchor_img)
+                    if homography is not None:
+                        roi_pts = np.float32([[layout_corrected_coords[0], layout_corrected_coords[1]],
+                                           [layout_corrected_coords[2], layout_corrected_coords[1]],
+                                           [layout_corrected_coords[2], layout_corrected_coords[3]],
+                                           [layout_corrected_coords[0], layout_corrected_coords[3]]]).reshape(-1,1,2)
+                        transformed_pts = cv2.perspectiveTransform(roi_pts * render_scale, homography)
+                        if transformed_pts is not None:
+                            x_coords, y_coords = transformed_pts[:, 0, 0], transformed_pts[:, 0, 1]
+                            new_coords = [c / render_scale for c in [min(x_coords), min(y_coords), max(x_coords), max(y_coords)]]
+                            result['message'] += "[H미세조정] "
+                            print(f"[{field_name}] 호모그래피 미세조정 성공")
+                    else:
+                        top_left = self._find_anchor_template_matching(filled_page_img, anchor_img)
+                        if top_left:
+                            scale_factor = render_scale
+                            anchor_w = (layout_corrected_anchor_coords[2] - layout_corrected_anchor_coords[0]) * scale_factor
+                            anchor_h = (layout_corrected_anchor_coords[3] - layout_corrected_anchor_coords[1]) * scale_factor
 
-                        found_center_x = top_left[0] + anchor_w / 2
-                        found_center_y = top_left[1] + anchor_h / 2
+                            found_center_x = top_left[0] + anchor_w / 2
+                            found_center_y = top_left[1] + anchor_h / 2
 
-                        orig_anchor_center_x = (layout_corrected_anchor_coords[0] + layout_corrected_anchor_coords[2]) * scale_factor / 2
-                        orig_anchor_center_y = (layout_corrected_anchor_coords[1] + layout_corrected_anchor_coords[3]) * scale_factor / 2
+                            orig_anchor_center_x = (layout_corrected_anchor_coords[0] + layout_corrected_anchor_coords[2]) * scale_factor / 2
+                            orig_anchor_center_y = (layout_corrected_anchor_coords[1] + layout_corrected_anchor_coords[3]) * scale_factor / 2
 
-                        dx = (found_center_x - orig_anchor_center_x) / scale_factor
-                        dy = (found_center_y - orig_anchor_center_y) / scale_factor
+                            dx = (found_center_x - orig_anchor_center_x) / scale_factor
+                            dy = (found_center_y - orig_anchor_center_y) / scale_factor
 
-                        if abs(dx) > 2.0 or abs(dy) > 2.0:
                             new_coords = [layout_corrected_coords[0] + dx, layout_corrected_coords[1] + dy,
                                         layout_corrected_coords[2] + dx, layout_corrected_coords[3] + dy]
                             result['message'] += "[T미세조정] "
-                            print(f"[{field_name}] 템플릿 매칭 미세조정 성공 (이동량: dx={dx:.2f}, dy={dy:.2f})")
-                        else:
-                            result['message'] += "[T변화미미] "
-                            print(f"[{field_name}] 템플릿 매칭 변화량 미미 (dx={dx:.2f}, dy={dy:.2f}), 보정 무시")
-                    else:
-                        # 2순위: 아핀 변환 시도
-                        affine_matrix = self._find_anchor_affine_robust(filled_page_img, anchor_img)
-                        if affine_matrix is not None:
-                            roi_pts = np.float32([[layout_corrected_coords[0], layout_corrected_coords[1]],
-                                               [layout_corrected_coords[2], layout_corrected_coords[1]],
-                                               [layout_corrected_coords[2], layout_corrected_coords[3]],
-                                               [layout_corrected_coords[0], layout_corrected_coords[3]]]).reshape(-1,1,2)
-                            
-                            # 아핀 변환 적용
-                            transformed_pts = cv2.transform(roi_pts * render_scale, affine_matrix)
-
-                            if transformed_pts is not None:
-                                x_coords, y_coords = transformed_pts[:, 0, 0], transformed_pts[:, 0, 1]
-                                anchor_corrected_coords = [c / render_scale for c in [min(x_coords), min(y_coords), max(x_coords), max(y_coords)]]
-                                
-                                page_rect = filled_doc[page_num].rect
-                                if anchor_corrected_coords[0] > page_rect.width or anchor_corrected_coords[1] > page_rect.height:
-                                    result['message'] += "[A결과오류] "
-                                    print(f"[{field_name}] 아핀 변환 결과가 페이지를 벗어남, 보정 무시")
-                                else:
-                                    coord_diff = np.sum(np.abs(np.array(anchor_corrected_coords) - np.array(layout_corrected_coords)))
-                                    if coord_diff > 3.0:
-                                        new_coords = anchor_corrected_coords
-                                        result['message'] += "[A미세조정] "
-                                        print(f"[{field_name}] 아핀 변환 미세조정 성공 (변화량: {coord_diff:.2f})")
-                                    else:
-                                        result['message'] += "[A변화미미] "
-                                        print(f"[{field_name}] 아핀 변환 변화량 미미 ({coord_diff:.2f}), 보정 무시")
+                            print(f"[{field_name}] 템플릿 매칭 미세조정 성공")
                         else:
                             result['message'] += "[앵커실패→레이아웃보정만사용] "
                             print(f"[{field_name}] 앵커 매칭 실패, 레이아웃 보정 결과만 사용")
@@ -577,8 +508,6 @@ class PDFValidator:
 
             # 3단계: 보정된 좌표로 ROI 검증 수행
             print(f"[{field_name}] 3단계: ROI 검증 수행 (최종좌표: {new_coords})")
-            page_bounds = filled_doc[page_num].rect
-            print(f"[{field_name}] 페이지 크기: {page_bounds}, 검증할 좌표: {new_coords}")
             filled_roi = self._extract_roi_image(filled_doc, page_num, new_coords, render_scale)
             if filled_roi.size == 0: result["status"] = "ERROR"; result["message"] += "채워진 ROI 없음"; return result
 
@@ -587,15 +516,14 @@ class PDFValidator:
             original_gray = cv2.cvtColor(original_roi_img, cv2.COLOR_RGB2GRAY)
             filled_gray = cv2.cvtColor(filled_roi_resized, cv2.COLOR_RGB2GRAY)
 
-            # if ssim(original_gray, filled_gray, data_range=255) > 0.95:
-            #     result["status"] = "DEFICIENT"
-            #     result["message"] += "내용 없음(SSIM)"
-            #     return result
+            if ssim(original_gray, filled_gray, data_range=255) > 0.95:
+                result["status"] = "DEFICIENT"
+                result["message"] += "내용 없음(SSIM)"
+                return result
 
             if method == "contour":
                 diff = cv2.absdiff(original_gray, filled_gray)
-                # 임계값을 30에서 20으로 낮춰 민감도 향상
-                _, binary = cv2.threshold(diff, 20, 255, cv2.THRESH_BINARY)
+                _, binary = cv2.threshold(diff, 30, 255, cv2.THRESH_BINARY)
                 total_area = cv2.countNonZero(binary)
                 if total_area < threshold:
                     result["status"] = "DEFICIENT"
@@ -623,8 +551,6 @@ class PDFValidator:
             result["status"] = "ERROR"
             result["message"] = f"검증 오류: {str(e)}"
 
-        # 최종적으로 사용된 좌표를 결과에 반영
-        result["coords"] = new_coords
         return result
 
     def validate_pdf(self, filled_pdf_path, progress_callback=None):
@@ -857,7 +783,7 @@ class PDFValidatorGUI:
             self.validate_btn.config(state=tk.NORMAL)
             return
 
-        output_dir = os.path.join("output", re.sub(r'[\\/*?:"<>|]', "", template_name))
+        output_dir = os.path.join("output", re.sub(r'[\\/*?:\"<>|]', "", template_name))
         os.makedirs(output_dir, exist_ok=True)
 
         self.log_text.delete('1.0', tk.END)
@@ -903,7 +829,7 @@ class PDFValidatorGUI:
             return
 
         template_name = self.template_var.get()
-        output_dir = os.path.join("output", re.sub(r'[\\/*?:"<>|]', "", template_name))
+        output_dir = os.path.join("output", re.sub(r'[\\/*?:\"<>|]', "", template_name))
         os.makedirs(output_dir, exist_ok=True)
 
         base_name = os.path.splitext(os.path.basename(self.target_path))[0]
