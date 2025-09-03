@@ -93,10 +93,10 @@ class TemplateManager:
         # --- 개선된 로직: 라벨 기반 앵커 시스템 ---
         # 1. 드래그한 영역을 ROI로 설정
         roi_coords = self.screen_to_pdf_coords(x1, y1, x2, y2)
-        
+
         # 2. ROI 좌측의 라벨 영역을 앵커로 자동 생성
         anchor_coords = self.generate_label_anchor(roi_coords)
-        
+
         # 3. 앵커 품질 검사 및 대안 제시
         anchor_quality = self.check_anchor_quality(anchor_coords)
         if anchor_quality < 10:  # 키포인트 10개 미만
@@ -104,69 +104,69 @@ class TemplateManager:
             alternative_anchors = self.suggest_alternative_anchors(roi_coords)
             if alternative_anchors:
                 anchor_coords = self.select_best_anchor(alternative_anchors)
-                
+
         # 4. 정보 입력창 호출
         self.get_roi_info_and_save(roi_coords, anchor_coords)
-    
+
     def generate_label_anchor(self, roi_coords):
         """ROI 좌측 라벨 영역을 앵커로 자동 생성"""
         roi_left, roi_top, roi_right, roi_bottom = roi_coords
-        
+
         # ROI 좌측 100px 영역을 라벨 앵커로 설정
         label_width = min(100, roi_left)  # 페이지 경계 고려
-        
+
         anchor_coords = [
             max(0, roi_left - label_width),  # 페이지 경계 제한
             roi_top - 5,    # ROI보다 약간 위에서 시작
             roi_left - 5,   # ROI 직전까지
             roi_bottom + 5  # ROI보다 약간 아래까지
         ]
-        
+
         return anchor_coords
-    
+
     def check_anchor_quality(self, anchor_coords):
         """앵커 영역의 특징점 품질 검사"""
         if not self.pdf_doc:
             return 0
-            
+
         try:
             # 앵커 영역 이미지 추출
             page = self.pdf_doc[self.current_page]
             rect = fitz.Rect(anchor_coords)
             mat = fitz.Matrix(2.0, 2.0)  # 고해상도로 추출
             pix = page.get_pixmap(matrix=mat, clip=rect, alpha=False)
-            
+
             import cv2
             import numpy as np
-            
+
             img_array = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
             gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
-            
+
             # AKAZE로 키포인트 검출
             detector = cv2.AKAZE_create()
             kp, des = detector.detectAndCompute(gray, None)
-            
+
             keypoint_count = len(kp) if kp else 0
             print(f"[앵커 품질] 키포인트: {keypoint_count}개")
-            
+
             return keypoint_count
-            
+
         except Exception as e:
             print(f"[앵커 품질] 검사 실패: {e}")
             return 0
-    
+
     def suggest_alternative_anchors(self, roi_coords):
         """ROI 주변의 대안 앵커 후보들 제시"""
         alternatives = []
-        
+
         # 1. 상단 영역 (헤더/제목)
         page_width = self.pdf_doc[self.current_page].rect.width
         header_anchor = [0, 0, page_width, roi_coords[1] - 20]
-        
+
         # 2. 하단 영역 (푸터)
         page_height = self.pdf_doc[self.current_page].rect.height
         footer_anchor = [0, roi_coords[3] + 20, page_width, page_height]
-        
+
         # 3. 우측 영역
         right_anchor = [
             roi_coords[2] + 10,
@@ -174,7 +174,7 @@ class TemplateManager:
             min(roi_coords[2] + 120, page_width),
             roi_coords[3] + 10
         ]
-        
+
         # 4. 확장된 좌측 영역
         extended_left_anchor = [
             max(0, roi_coords[0] - 200),
@@ -182,23 +182,23 @@ class TemplateManager:
             roi_coords[0] - 5,
             roi_coords[3] + 20
         ]
-        
+
         candidates = [
             {"name": "헤더 영역", "coords": header_anchor},
             {"name": "확장 좌측", "coords": extended_left_anchor},
             {"name": "우측 영역", "coords": right_anchor},
             {"name": "푸터 영역", "coords": footer_anchor}
         ]
-        
+
         # 각 후보의 품질 평가
         for candidate in candidates:
             quality = self.check_anchor_quality(candidate["coords"])
             candidate["quality"] = quality
             print(f"[대안 앵커] {candidate['name']}: {quality}개 키포인트")
-        
+
         # 품질 순으로 정렬
         return sorted(candidates, key=lambda x: x["quality"], reverse=True)
-    
+
     def select_best_anchor(self, alternatives):
         """최고 품질의 앵커 선택"""
         if alternatives and alternatives[0]["quality"] > 5:
