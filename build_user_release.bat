@@ -85,7 +85,7 @@ mkdir release
 
 echo "Building portable EXE with Tesseract..."
  venv\Scripts\python.exe -m PyInstaller ^
-    --onefile ^
+    --onedir ^
     --windowed ^
     --name "InsuranceDocValidator" ^
     --distpath "release" ^

@@ -30,9 +30,9 @@ class DocumentLayoutDetector:
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
             gray = img
-        
+
         # 적응형 이진화로 그림자 등 음영 제거
-        binary = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+        binary = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
                                      cv2.THRESH_BINARY_INV, 11, 2)
 
         # 2. 노이즈 제거 (선택적이지만 권장)
@@ -58,9 +58,9 @@ class DocumentLayoutDetector:
 
         y_min, y_max = y_coords[0], y_coords[-1]
         x_min, x_max = x_coords[0], x_coords[-1]
-        
+
         # 5. 여백 추가 (너무 타이트하게 자르지 않도록)
-        padding = 10 
+        padding = 10
         x_min = max(0, x_min - padding)
         y_min = max(0, y_min - padding)
         x_max = min(img.shape[1], x_max + padding)
@@ -163,12 +163,12 @@ class DocumentLayoutDetector:
 
 def setup_tesseract():
     """배포(frozen) 및 개발 환경 모두에서 Tesseract 경로를 안정적으로 설정합니다."""
-    # PyInstaller로 생성된 임시 폴더(frozen)인지 확인
-    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
-        # EXE로부터 추출된 임시 폴더의 경로 (one-file mode)
-        application_path = sys._MEIPASS
+    # PyInstaller로 생성된 실행파일인지 확인
+    if getattr(sys, 'frozen', False):
+        # EXE 파일과 같은 폴더에서 vendor 찾기 (외부 배치)
+        application_path = os.path.dirname(sys.executable)
     else:
-        # 일반 Python 스크립트 실행 환경 또는 one-folder mode
+        # 일반 Python 스크립트 실행 환경
         # __file__은 현재 스크립트(pdf_validator_gui.py)의 경로
         # os.path.dirname()으로 스크립트가 있는 폴더(src)를 얻음
         # '..'을 통해 상위 폴더(프로젝트 루트)로 이동
@@ -184,7 +184,7 @@ def setup_tesseract():
         os.environ['TESSDATA_PREFIX'] = tessdata_dir
         return True
     else:
-        # GUI 환경에서는 직접적인 print보다 로그나 메시지 박스로 처리하는 것이 더 적합합니다.
+        # 디버깅용 로그 (배포 시는 비활성화)
         # print(f"🔥 Tesseract 경로 설정 실패. 다음 경로를 확인하세요:")
         # print(f"  - 실행 파일: {tesseract_cmd_path} (존재: {os.path.exists(tesseract_cmd_path)})")
         # print(f"  - 데이터 폴더: {tessdata_dir} (존재: {os.path.exists(tessdata_dir)})")
@@ -252,10 +252,10 @@ class PDFValidator:
                 if len(good_matches) >= 10:
                     src_pts = np.float32([kp_anchor[m.queryIdx].pt for m in good_matches]).reshape(-1, 1, 2)
                     dst_pts = np.float32([kp_page[m.trainIdx].pt for m in good_matches]).reshape(-1, 1, 2)
-                    
+
                     # 아핀 변환 계산
                     affine_matrix, mask = cv2.estimateAffine2D(src_pts, dst_pts, method=cv2.RANSAC, ransacReprojThreshold=5.0)
-                    
+
                     if affine_matrix is not None:
                         inlier_count = np.sum(mask)
                         if inlier_count > best_match_count:
@@ -495,7 +495,7 @@ class PDFValidator:
                abs(layout_offset['offset_y']) > offset_threshold or \
                abs(layout_offset['scale_x'] - 1.0) > scale_threshold or \
                abs(layout_offset['scale_y'] - 1.0) > scale_threshold:
-                
+
                 result['message'] += f"[레이아웃보정:오프셋({layout_offset['offset_x']:.1f},{layout_offset['offset_y']:.1f})] "
                 layout_corrected_coords = self._apply_layout_correction(coords, layout_offset)
             else:
@@ -531,7 +531,7 @@ class PDFValidator:
                         dx = (found_center_x - orig_anchor_center_x) / scale_factor
                         dy = (found_center_y - orig_anchor_center_y) / scale_factor
 
-                        if abs(dx) > 2.0 or abs(dy) > 2.0:
+                        if abs(dx) > 4.0 or abs(dy) > 4.0: # 임계값 상향 (2.0 -> 4.0)
                             new_coords = [layout_corrected_coords[0] + dx, layout_corrected_coords[1] + dy,
                                         layout_corrected_coords[2] + dx, layout_corrected_coords[3] + dy]
                             result['message'] += "[T미세조정] "
@@ -547,14 +547,14 @@ class PDFValidator:
                                                [layout_corrected_coords[2], layout_corrected_coords[1]],
                                                [layout_corrected_coords[2], layout_corrected_coords[3]],
                                                [layout_corrected_coords[0], layout_corrected_coords[3]]]).reshape(-1,1,2)
-                            
+
                             # 아핀 변환 적용
                             transformed_pts = cv2.transform(roi_pts * render_scale, affine_matrix)
 
                             if transformed_pts is not None:
                                 x_coords, y_coords = transformed_pts[:, 0, 0], transformed_pts[:, 0, 1]
                                 anchor_corrected_coords = [c / render_scale for c in [min(x_coords), min(y_coords), max(x_coords), max(y_coords)]]
-                                
+
                                 page_rect = filled_doc[page_num].rect
                                 if anchor_corrected_coords[0] > page_rect.width or anchor_corrected_coords[1] > page_rect.height:
                                     result['message'] += "[A결과오류] "
@@ -593,15 +593,35 @@ class PDFValidator:
             #     return result
 
             if method == "contour":
+                # 블러 처리를 비활성화하여 미세한 선도 감지하도록 함
+                # blurred_original = cv2.GaussianBlur(original_gray, (5, 5), 0)
+                # blurred_filled = cv2.GaussianBlur(filled_gray, (5, 5), 0)
                 diff = cv2.absdiff(original_gray, filled_gray)
-                # 임계값을 30에서 20으로 낮춰 민감도 향상
+                
                 _, binary = cv2.threshold(diff, 20, 255, cv2.THRESH_BINARY)
-                total_area = cv2.countNonZero(binary)
-                if total_area < threshold:
-                    result["status"] = "DEFICIENT"
-                    result["message"] += f"Contour미흡(면적:{total_area})"
+
+                contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                
+                # --- 상세 디버깅 로그 추가 ---
+                if not contours:
+                    print(f"  [{field_name}] Contour 검출 결과: 컨투어 없음")
+                    significant_contours = []
                 else:
-                    result["message"] += f"Contour통과(면적:{total_area})"
+                    all_areas = [cv2.contourArea(c) for c in contours]
+                    print(f"  [{field_name}] Contour 검출 결과: 총 {len(all_areas)}개, 면적리스트: {[f'{a:.0f}' for a in all_areas]}")
+                    print(f"  [{field_name}] 사용자 설정 임계값: {threshold}")
+                    significant_contours = [c for c in contours if cv2.contourArea(c) > threshold]
+                    print(f"  [{field_name}] 임계값 통과 컨투어: {len(significant_contours)}개")
+                # --- 디버깅 로그 끝 ---
+
+                if significant_contours:
+                    # 의미있는 컨투어가 존재하면 통과
+                    result["status"] = "OK"
+                    result["message"] += f"Contour통과(유효 컨투어 {len(significant_contours)}개 발견)"
+                else:
+                    # 그렇지 않으면 미흡
+                    result["status"] = "DEFICIENT"
+                    result["message"] += f"Contour미흡(유효 컨투어 없음)"
             elif method == "ocr":
                 ocr_img = cv2.adaptiveThreshold(
                     cv2.cvtColor(filled_roi, cv2.COLOR_RGB2GRAY),
@@ -661,7 +681,20 @@ class PDFValidatorGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("2단계: ROI 검증 도구 (v18.0 - 레이아웃 감지 통합)")
-        self.root.geometry("1200x900")
+
+        # 화면 크기에 맞춰 창 크기 설정
+        screen_width = root.winfo_screenwidth()
+        screen_height = root.winfo_screenheight()
+        window_width = min(1600, int(screen_width * 0.9))  # 화면의 90% 또는 최대 1600px
+        window_height = min(1000, int(screen_height * 0.9))  # 화면의 90% 또는 최대 1000px
+
+        # 창을 화면 중앙에 위치
+        x = (screen_width - window_width) // 2
+        y = (screen_height - window_height) // 2
+        self.root.geometry(f"{window_width}x{window_height}+{x}+{y}")
+
+        # 창 크기 조절 가능하도록 설정
+        self.root.minsize(1200, 800)
 
         self.templates = {}
         self.selected_template = None
@@ -690,8 +723,12 @@ class PDFValidatorGUI:
         main_frame = ttk.Frame(self.root, padding="10")
         main_frame.pack(fill=tk.BOTH, expand=True)
 
+        # Grid 레이아웃으로 변경
+        main_frame.rowconfigure(2, weight=1) # 뷰어 프레임이 세로 공간을 모두 차지하도록 설정
+        main_frame.columnconfigure(0, weight=1)
+
         control_frame = ttk.LabelFrame(main_frame, text="검증 설정", padding="10")
-        control_frame.pack(fill=tk.X, pady=(0, 10))
+        control_frame.grid(row=0, column=0, sticky="ew", padx=5, pady=5)
 
         self.mode_var = tk.StringVar(value="폴더")
         ttk.Label(control_frame, text="검사 방식 선택:").grid(row=0, column=0, sticky=tk.W, pady=5)
@@ -717,24 +754,46 @@ class PDFValidatorGUI:
         control_frame.columnconfigure(1, weight=1)
 
         self.validate_btn = ttk.Button(main_frame, text="검사 실행", command=self.run_validation, state=tk.DISABLED)
-        self.validate_btn.pack(pady=10)
+        self.validate_btn.grid(row=1, column=0, pady=10)
 
         self.viewer_frame = ttk.Frame(main_frame)
+        self.viewer_frame.grid(row=2, column=0, sticky="nsew") # 뷰어 프레임이 남는 공간을 모두 차지
+        self.viewer_frame.rowconfigure(0, weight=1)
+        self.viewer_frame.columnconfigure(0, weight=1)
+
         viewer_pane = ttk.PanedWindow(self.viewer_frame, orient=tk.HORIZONTAL)
-        viewer_pane.pack(fill=tk.BOTH, expand=True, pady=(10, 0))
+        viewer_pane.grid(row=0, column=0, sticky="nsew")
 
         left_viewer_frame = ttk.LabelFrame(viewer_pane, text="원본 템플릿", padding="5")
         viewer_pane.add(left_viewer_frame, weight=1)
+        left_viewer_frame.rowconfigure(0, weight=1)
+        left_viewer_frame.columnconfigure(0, weight=1)
+
         self.left_canvas = tk.Canvas(left_viewer_frame, bg="white")
-        self.left_canvas.pack(fill=tk.BOTH, expand=True)
+        self.left_canvas.grid(row=0, column=0, sticky="nsew")
+
+        left_v_scroll = ttk.Scrollbar(left_viewer_frame, orient="vertical", command=self.left_canvas.yview)
+        left_v_scroll.grid(row=0, column=1, sticky="ns")
+        left_h_scroll = ttk.Scrollbar(left_viewer_frame, orient="horizontal", command=self.left_canvas.xview)
+        left_h_scroll.grid(row=1, column=0, sticky="ew")
+        self.left_canvas.configure(yscrollcommand=left_v_scroll.set, xscrollcommand=left_h_scroll.set)
 
         right_viewer_frame = ttk.LabelFrame(viewer_pane, text="검증된 문서 (주석)", padding="5")
         viewer_pane.add(right_viewer_frame, weight=1)
+        right_viewer_frame.rowconfigure(0, weight=1)
+        right_viewer_frame.columnconfigure(0, weight=1)
+
         self.right_canvas = tk.Canvas(right_viewer_frame, bg="white")
-        self.right_canvas.pack(fill=tk.BOTH, expand=True)
+        self.right_canvas.grid(row=0, column=0, sticky="nsew")
+
+        right_v_scroll = ttk.Scrollbar(right_viewer_frame, orient="vertical", command=self.right_canvas.yview)
+        right_v_scroll.grid(row=0, column=1, sticky="ns")
+        right_h_scroll = ttk.Scrollbar(right_viewer_frame, orient="horizontal", command=self.right_canvas.xview)
+        right_h_scroll.grid(row=1, column=0, sticky="ew")
+        self.right_canvas.configure(yscrollcommand=right_v_scroll.set, xscrollcommand=right_h_scroll.set)
 
         nav_frame = ttk.Frame(self.viewer_frame)
-        nav_frame.pack(fill=tk.X, pady=5)
+        nav_frame.grid(row=1, column=0, sticky="ew", pady=5)
         self.prev_page_btn = ttk.Button(nav_frame, text="◀ 이전", command=self.prev_page, state=tk.DISABLED)
         self.prev_page_btn.pack(side=tk.LEFT)
         self.page_label = ttk.Label(nav_frame, text="페이지: 0/0")
@@ -744,12 +803,14 @@ class PDFValidatorGUI:
         self.save_file_btn = ttk.Button(nav_frame, text="결과 저장", command=self.save_single_file_result, state=tk.DISABLED)
         self.save_file_btn.pack(side=tk.RIGHT, padx=10)
 
-        log_frame = ttk.LabelFrame(main_frame, text="진행 상황 로그", padding="10")
-        log_frame.pack(fill=tk.BOTH, expand=True, pady=(10, 0))
-        self.log_text = scrolledtext.ScrolledText(log_frame, height=10, font=('Consolas', 10))
+        log_frame = ttk.LabelFrame(main_frame, text="진행 상황 로그", padding="5")
+        log_frame.grid(row=3, column=0, sticky="ew", padx=5, pady=5)
+        main_frame.rowconfigure(3, weight=0) # 로그 프레임은 추가 공간을 차지하지 않음
+
+        self.log_text = scrolledtext.ScrolledText(log_frame, height=6, font=('Consolas', 9))
         self.log_text.pack(fill=tk.BOTH, expand=True)
         self.progress_bar = ttk.Progressbar(log_frame, mode='determinate')
-        self.progress_bar.pack(fill=tk.X, pady=(5, 0))
+        self.progress_bar.pack(fill=tk.X, pady=(3, 0))
 
         self.switch_mode()
 
@@ -765,12 +826,12 @@ class PDFValidatorGUI:
         if mode == "파일":
             self.target_label.config(text="검사 대상 파일:")
             self.browse_btn.config(text="파일 찾기")
-            self.viewer_frame.pack(fill=tk.BOTH, expand=True)
+            self.viewer_frame.grid(row=2, column=0, sticky="nsew") # 뷰어 다시 표시
             self.save_file_btn.config(state=tk.DISABLED)
         else:
             self.target_label.config(text="검사 대상 폴더:")
             self.browse_btn.config(text="폴더 찾기")
-            self.viewer_frame.pack_forget()
+            self.viewer_frame.grid_remove() # 뷰어 숨기기
 
         self.update_validate_button_state()
 
@@ -945,48 +1006,113 @@ class PDFValidatorGUI:
         if not self.original_pdf_doc or not self.root.winfo_viewable():
             return
 
+        # 좌역 캔버스 크기 업데이트 대기
+        self.root.update_idletasks()
+
+        # 원본 또는 변경 난 원본을 재사용 안하고 새로 찾기 위해 바로 로딩
         page_orig = self.original_pdf_doc[self.current_page_num]
         img_orig = self.render_page_to_image(page_orig, self.left_canvas)
         if img_orig:
             self.left_photo = img_orig
             self.left_canvas.delete("all")
-            self.left_canvas.create_image(0, 0, anchor=tk.NW, image=self.left_photo)
-            self.draw_rois_on_viewer(self.left_canvas, page_orig)
 
+            # 이미지를 중앙에 배치
+            canvas_width = self.left_canvas.winfo_width()
+            canvas_height = self.left_canvas.winfo_height()
+            img_width = img_orig.width()
+            img_height = img_orig.height()
+
+            x = max(0, (canvas_width - img_width) // 2)
+            y = max(0, (canvas_height - img_height) // 2)
+
+            self.left_canvas.create_image(x, y, anchor=tk.NW, image=self.left_photo)
+
+            # 스크롤 영역 설정
+            self.left_canvas.configure(scrollregion=self.left_canvas.bbox("all"))
+
+            # ROI 드로잉
+            self.draw_rois_on_viewer(self.left_canvas, page_orig, x, y)
+
+        # 우측 캔버스 (검증된 문서)
         if self.annotated_pdf_doc and self.current_page_num < self.annotated_pdf_doc.page_count:
             page_annot = self.annotated_pdf_doc[self.current_page_num]
             img_annot = self.render_page_to_image(page_annot, self.right_canvas)
             if img_annot:
                 self.right_photo = img_annot
                 self.right_canvas.delete("all")
-                self.right_canvas.create_image(0, 0, anchor=tk.NW, image=self.right_photo)
+
+                # 이미지를 중앙에 배치
+                canvas_width = self.right_canvas.winfo_width()
+                canvas_height = self.right_canvas.winfo_height()
+                img_width = img_annot.width()
+                img_height = img_annot.height()
+
+                x = max(0, (canvas_width - img_width) // 2)
+                y = max(0, (canvas_height - img_height) // 2)
+
+                self.right_canvas.create_image(x, y, anchor=tk.NW, image=self.right_photo)
+
+                # 스크롤 영역 설정
+                self.right_canvas.configure(scrollregion=self.right_canvas.bbox("all"))
 
         self.update_navigation_buttons()
 
-    def draw_rois_on_viewer(self, canvas, page):
+    def draw_rois_on_viewer(self, canvas, page, offset_x=0, offset_y=0):
         if not self.selected_template:
             return
 
-        zoom = min(canvas.winfo_width() / page.rect.width, canvas.winfo_height() / page.rect.height)
+        canvas_width = canvas.winfo_width()
+        canvas_height = canvas.winfo_height()
+        if canvas_width < 50 or canvas_height < 50:
+            return
+
+        # 줄 배율 계산 (렌더링과 동일)
+        page_rect = page.rect
+        zoom_x = canvas_width / page_rect.width
+        zoom_y = canvas_height / page_rect.height
+        zoom = min(zoom_x, zoom_y) * 1.2
+
+        max_zoom = 4.0
+        zoom = min(zoom, max_zoom)
+
         mat = fitz.Matrix(zoom, zoom)
 
         for field_name, roi_info in self.selected_template['rois'].items():
             if roi_info['page'] == self.current_page_num:
                 rect = fitz.Rect(roi_info['coords']) * mat
                 color = "blue" if roi_info['method'] == 'ocr' else 'red'
-                canvas.create_rectangle(rect.x0, rect.y0, rect.x1, rect.y1, outline=color, width=2, dash=(4, 4))
-                canvas.create_text(rect.x0, rect.y0 - 5, text=field_name, fill=color, anchor="sw")
+
+                # 오프셋 적용
+                x0, y0, x1, y1 = rect.x0 + offset_x, rect.y0 + offset_y, rect.x1 + offset_x, rect.y1 + offset_y
+
+                canvas.create_rectangle(x0, y0, x1, y1, outline=color, width=2, dash=(4, 4))
+                canvas.create_text(x0, y0 - 5, text=field_name, fill=color, anchor="sw")
 
     def render_page_to_image(self, page, canvas):
+        """PDF 페이지를 캔버스에 맞는 이미지로 렌더링 (고해상도)"""
         w, h = canvas.winfo_width(), canvas.winfo_height()
-        if w < 10 or h < 10:
+        if w < 50 or h < 50:  # 최소 크기 보장
             return None
 
-        zoom = min(w / page.rect.width, h / page.rect.height)
+        # 더 큰 화면에 맞춰 고해상도 렌더링
+        page_rect = page.rect
+        zoom_x = w / page_rect.width
+        zoom_y = h / page_rect.height
+        zoom = min(zoom_x, zoom_y) * 1.2  # 20% 더 크게 렌더링
+
+        # 최대 해상도 제한 (성능 고려)
+        max_zoom = 4.0
+        zoom = min(zoom, max_zoom)
+
         mat = fitz.Matrix(zoom, zoom)
-        pix = page.get_pixmap(matrix=mat)
-        img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-        return ImageTk.PhotoImage(image=img)
+        pix = page.get_pixmap(matrix=mat, alpha=False)
+
+        try:
+            img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+            return ImageTk.PhotoImage(image=img)
+        except Exception as e:
+            print(f"이미지 렌더링 오류: {e}")
+            return None
 
     def update_navigation_buttons(self):
         self.page_label.config(text=f"페이지: {self.current_page_num + 1}/{self.total_pages}")

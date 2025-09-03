@@ -101,12 +101,31 @@ class TemplateManager:
 
     def evaluate_anchor_region(self, img):
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        # 특징점 (AKAZE + SIFT)
-        kp1 = cv2.AKAZE_create().detect(gray, None)
-        kp2 = cv2.SIFT_create().detect(gray, None)
-        # 엣지 밀도
-        edges = cv2.Canny(gray,100,200); edge_density = edges.mean()
-        return len(kp1)+len(kp2)+int(edge_density/10)
+
+        # 1. 코너 검출 (Harris Corner)
+        # 반복적인 라인보다 고유한 코너에 높은 점수 부여
+        harris_corners = cv2.cornerHarris(gray, 2, 3, 0.04)
+        # 임계값 이상인 코너의 개수
+        harris_score = np.sum(harris_corners > 0.01 * harris_corners.max())
+
+        # 2. 특징점 품질 (AKAZE 사용, response 값 합산)
+        akaze = cv2.AKAZE_create()
+        kp = akaze.detect(gray, None)
+        feature_quality_score = 0
+        if kp:
+            # 특징점 개수와 품질(response)을 함께 고려
+            feature_quality_score = len(kp) + int(sum(p.response for p in kp))
+
+        # 3. 엣지 밀도 (Canny)
+        edges = cv2.Canny(gray, 100, 200)
+        edge_density_score = int(np.sum(edges) / 255) # 엣지 픽셀의 총 개수
+
+        # 최종 점수: 각 요소에 가중치를 두어 합산
+        # 코너와 특징점 품질에 높은 가중치 부여
+        total_score = (harris_score * 2.0) + (feature_quality_score * 1.5) + (edge_density_score * 1.0)
+
+        print(f"  [앵커 평가] 코너: {harris_score}, 특징점: {feature_quality_score}, 엣지: {edge_density_score} -> 최종 점수: {total_score}")
+        return total_score
 
     def generate_anchor_candidates(self, roi):
         page = self.pdf_doc[self.current_page]; pw, ph = page.rect.width, page.rect.height
@@ -230,7 +249,14 @@ class TemplateManager:
             print(f"  - anchor_coords: {first_roi_data.get('anchor_coords')}")
             print("---------------------------------------------------------")
 
-        self.templates[template_name]={'original_pdf_path':self.current_pdf_path,'rois':self.rois}
+        # 경로를 상대 경로로 변환하여 저장
+        try:
+            relative_pdf_path = os.path.relpath(self.current_pdf_path, os.getcwd())
+        except ValueError:
+            # 드라이브가 다른 경우 등 상대 경로를 만들 수 없을 때를 대비
+            relative_pdf_path = self.current_pdf_path
+
+        self.templates[template_name]={'original_pdf_path': relative_pdf_path,'rois':self.rois}
         try:
             with open("templates.json",'w',encoding='utf-8') as f: json.dump(self.templates,f,ensure_ascii=False,indent=2)
             messagebox.showinfo("성공",f"템플릿 '{template_name}' 저장 완료", parent=self.root)
@@ -256,7 +282,51 @@ class TemplateManager:
             self.open_pdf(path=template['original_pdf_path'], rois_to_load=template['rois']); dialog.destroy()
         ttk.Button(dialog,text="불러오기",command=on_load).pack(pady=5)
 
-    def delete_template(self): pass
+    def delete_template(self):
+        self.templates = self.load_all_templates()
+        if not self.templates:
+            messagebox.showinfo("안내", "삭제할 템플릿이 없습니다.", parent=self.root)
+            return
+
+        dialog = tk.Toplevel(self.root)
+        dialog.title("템플릿 삭제")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        listbox = tk.Listbox(dialog, width=50, height=15)
+        listbox.pack(padx=10, pady=10)
+
+        for name in sorted(self.templates.keys()):
+            listbox.insert(tk.END, name)
+
+        def on_delete():
+            selections = listbox.curselection()
+            if not selections:
+                messagebox.showwarning("경고", "삭제할 템플릿을 선택하세요.", parent=dialog)
+                return
+
+            selected_name = listbox.get(selections[0])
+
+            if messagebox.askyesno("삭제 확인", f"'{selected_name}' 템플릿을 정말로 삭제하시겠습니까?", parent=dialog):
+                try:
+                    del self.templates[selected_name]
+                    with open("templates.json", 'w', encoding='utf-8') as f:
+                        json.dump(self.templates, f, ensure_ascii=False, indent=2)
+
+                    messagebox.showinfo("성공", f"'{selected_name}' 템플릿이 삭제되었습니다.", parent=dialog)
+                    dialog.destroy()
+
+                    # 현재 열려있는 템플릿이 삭제된 경우 초기화
+                    if self.current_pdf_path and os.path.splitext(os.path.basename(self.current_pdf_path))[0] == selected_name:
+                        self.pdf_doc.close()
+                        self.pdf_doc, self.current_page, self.rois, self.current_pdf_path = None, 0, {}, None
+                        self.display_page()
+
+                except Exception as e:
+                    messagebox.showerror("오류", f"템플릿 삭제 중 오류 발생:\n{e}", parent=dialog)
+
+        ttk.Button(dialog, text="선택한 템플릿 삭제", command=on_delete).pack(pady=5)
+        ttk.Button(dialog, text="취소", command=dialog.destroy).pack(pady=5)
 
 def main():
     root=tk.Tk(); app=TemplateManager(root); root.mainloop()
