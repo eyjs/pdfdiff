@@ -1,166 +1,59 @@
-"""
-Template Service
-템플릿 관리 도메인 서비스
-"""
-from typing import List, Optional, Dict
-from datetime import datetime
+# 파일 경로: domain/services/template_service.py
+import os
 
-from domain.entities.template import Template
-from domain.entities.roi import ROI, ValidationMethod
-from domain.repositories.template_repository import TemplateRepository
-
+# Domain Layer (Service)
+# 역할: 핵심 비즈니스 로직(Use Case)을 담당합니다.
+#       - 애플리케이션의 핵심 규칙과 프로세스를 구현.
+#       - 특정 기술(UI, DB, 라이브러리)에 의존하지 않음.
+#       - Repository Interface와 다른 Service에만 의존.
 
 class TemplateService:
-    """템플릿 도메인 서비스"""
+    def __init__(self, template_repository, vision_service):
+        self.repository = template_repository
+        self.vision_service = vision_service
 
-    def __init__(self, template_repository: TemplateRepository):
-        self._repository = template_repository
-
-    def create_template(self, name: str, pdf_path: str, description: str = None) -> Template:
-        """새 템플릿 생성"""
-        if self._repository.exists(name):
-            raise ValueError(f"템플릿 '{name}'이 이미 존재합니다")
-
-        template = Template(
-            name=name,
-            original_pdf_path=pdf_path,
-            description=description,
-            created_at=datetime.now().isoformat(),
-            updated_at=datetime.now().isoformat()
+    def create_roi_with_anchor(self, pdf_doc, page_num, roi_coords, method, threshold):
+        """
+        앵커를 탐색하고 완전한 ROI 데이터를 생성하는 비즈니스 로직.
+        """
+        # Infrastructure 계층의 Vision Service를 호출하여 앵커 탐색
+        best_anchor_coords = self.vision_service.find_best_anchor(
+            pdf_doc=pdf_doc,
+            page_num=page_num,
+            roi_coords=roi_coords
         )
 
-        return template
+        if not best_anchor_coords:
+            raise Exception("Could not find a suitable anchor region for this ROI.")
 
-    def save_template(self, template: Template) -> bool:
-        """템플릿 저장"""
-        template.updated_at = datetime.now().isoformat()
-        return self._repository.save(template)
+        # 완전한 ROI 데이터 객체 생성
+        roi_data = {
+            'page': page_num,
+            'coords': roi_coords,
+            'anchor_coords': best_anchor_coords,
+            'method': method,
+            'threshold': threshold
+        }
+        return roi_data
 
-    def get_template(self, name: str) -> Optional[Template]:
-        """템플릿 조회"""
-        return self._repository.find_by_name(name)
-
-    def get_all_templates(self) -> List[Template]:
-        """모든 템플릿 조회"""
-        return self._repository.find_all()
-
-    def get_template_names(self) -> List[str]:
-        """템플릿 이름 목록"""
-        return self._repository.get_template_names()
-
-    def delete_template(self, name: str) -> bool:
-        """템플릿 삭제"""
-        return self._repository.delete(name)
-
-    def template_exists(self, name: str) -> bool:
-        """템플릿 존재 여부"""
-        return self._repository.exists(name)
-
-    def add_roi_to_template(self, template_name: str, roi: ROI) -> bool:
-        """템플릿에 ROI 추가"""
-        template = self._repository.find_by_name(template_name)
-        if not template:
-            return False
-
+    def save_template(self, name, pdf_path, rois):
+        # PDF 경로를 상대 경로로 변환하는 비즈니스 규칙
         try:
-            template.add_roi(roi)
-            return self.save_template(template)
+            relative_pdf_path = os.path.relpath(pdf_path, os.getcwd())
         except ValueError:
-            return False
+            relative_pdf_path = pdf_path # 다른 드라이브 등 예외 처리
 
-    def remove_roi_from_template(self, template_name: str, roi_name: str) -> bool:
-        """템플릿에서 ROI 제거"""
-        template = self._repository.find_by_name(template_name)
-        if not template:
-            return False
+        # Repository를 통해 데이터 저장
+        self.repository.save(name, relative_pdf_path, rois)
 
-        if template.remove_roi(roi_name):
-            return self.save_template(template)
-        return False
+    def load_template(self, name):
+        template_data = self.repository.load(name)
+        if not os.path.exists(template_data['original_pdf_path']):
+            raise FileNotFoundError(f"Original PDF not found at: {template_data['original_pdf_path']}")
+        return template_data
 
-    def update_roi_in_template(self, template_name: str, roi: ROI) -> bool:
-        """템플릿의 ROI 업데이트"""
-        template = self._repository.find_by_name(template_name)
-        if not template:
-            return False
+    def get_all_template_names(self):
+        return self.repository.get_all_names()
 
-        # 기존 ROI 제거 후 새 ROI 추가
-        if roi.name in template.rois:
-            template.rois[roi.name] = roi
-            return self.save_template(template)
-
-        return False
-
-    def duplicate_template(self, source_name: str, target_name: str) -> bool:
-        """템플릿 복제"""
-        if self._repository.exists(target_name):
-            raise ValueError(f"대상 템플릿 '{target_name}'이 이미 존재합니다")
-
-        source_template = self._repository.find_by_name(source_name)
-        if not source_template:
-            return False
-
-        # 새 템플릿 생성
-        new_template = Template(
-            name=target_name,
-            original_pdf_path=source_template.original_pdf_path,
-            rois=source_template.rois.copy(),
-            description=f"{source_template.description} (복제본)" if source_template.description else "복제된 템플릿",
-            created_at=datetime.now().isoformat(),
-            updated_at=datetime.now().isoformat()
-        )
-
-        return self._repository.save(new_template)
-
-    def validate_template(self, template: Template) -> Dict[str, List[str]]:
-        """템플릿 유효성 검사"""
-        warnings = []
-        errors = []
-
-        # 기본 검증
-        if not template.name.strip():
-            errors.append("템플릿 이름이 비어있습니다")
-
-        if not template.original_pdf_path.strip():
-            errors.append("원본 PDF 경로가 비어있습니다")
-
-        if not template.pdf_path_exists:
-            warnings.append("원본 PDF 파일이 존재하지 않습니다")
-
-        # ROI 검증
-        if not template.rois:
-            warnings.append("ROI가 정의되지 않았습니다")
-
-        # ROI별 상세 검증
-        for roi_name, roi in template.rois.items():
-            if roi.area <= 0:
-                errors.append(f"ROI '{roi_name}': 유효하지 않은 면적")
-
-            if not roi.has_anchor():
-                warnings.append(f"ROI '{roi_name}': 앵커가 정의되지 않았습니다")
-
-        # 중복 ROI 검사
-        roi_coords = [tuple(roi.coords) for roi in template.rois.values()]
-        if len(roi_coords) != len(set(roi_coords)):
-            warnings.append("중복된 좌표의 ROI가 있습니다")
-
-        return {
-            "errors": errors,
-            "warnings": warnings
-        }
-
-    def get_template_statistics(self, template_name: str) -> Optional[Dict]:
-        """템플릿 통계 정보"""
-        template = self._repository.find_by_name(template_name)
-        if not template:
-            return None
-
-        return {
-            "name": template.name,
-            "roi_count": template.get_roi_count(),
-            "anchored_roi_count": template.get_anchored_roi_count(),
-            "total_pages": template.get_total_pages(),
-            "pdf_exists": template.pdf_path_exists,
-            "created_at": template.created_at,
-            "updated_at": template.updated_at
-        }
+    def delete_template(self, name):
+        self.repository.delete(name)

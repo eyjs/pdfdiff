@@ -1,138 +1,36 @@
-"""
-PDF Validator System - Main Entry Point
-애플리케이션 메인 진입점
-"""
+import tkinter as tk
 import sys
 import os
-from pathlib import Path
 
-# 프로젝트 루트 경로를 sys.path에 추가
-project_root = Path(__file__).parent
-if str(project_root) not in sys.path:
-    sys.path.insert(0, str(project_root))
+# 프로젝트의 루트 디렉토리를 Python 경로에 추가합니다.
+# 이렇게 하면 app, domain, infrastructure 등 다른 폴더에 있는 모듈을
+# 'from app.gui...' 와 같은 절대 경로로 가져올 수 있습니다.
+sys.path.append(os.path.abspath(os.path.dirname(__file__)))
 
-from infrastructure.config.settings import settings
-from shared.utils import LoggingUtils, FileUtils
-from shared.exceptions import *
-from shared.constants import APPLICATION_NAME, VERSION
-
-
-def setup_application():
-    """애플리케이션 초기 설정"""
-    try:
-        # 로거 설정
-        logger = LoggingUtils.setup_logger(
-            APPLICATION_NAME,
-            level=settings.log_level,
-            log_file="logs/app.log" if settings.debug_enabled else None
-        )
-
-        logger.info(f"{APPLICATION_NAME} v{VERSION} 시작")
-
-        # 필수 디렉토리 생성
-        required_dirs = [
-            settings.storage.output_directory,
-            settings.storage.input_directory,
-            "logs"
-        ]
-
-        for dir_path in required_dirs:
-            FileUtils.ensure_directory(dir_path)
-            logger.debug(f"디렉토리 확인/생성: {dir_path}")
-
-        # 설정 검증
-        validation_result = settings.validate()
-
-        if validation_result["errors"]:
-            logger.error("설정 오류 발견:")
-            for error in validation_result["errors"]:
-                logger.error(f"  - {error}")
-            return False
-
-        if validation_result["warnings"]:
-            logger.warning("설정 경고:")
-            for warning in validation_result["warnings"]:
-                logger.warning(f"  - {warning}")
-
-        logger.info("애플리케이션 초기화 완료")
-        return True
-
-    except Exception as e:
-        print(f"애플리케이션 초기화 실패: {e}")
-        return False
-
+from app.gui.main_window import MainWindow
+from app.controllers.main_controller import MainController
 
 def main():
-    """메인 함수"""
-    try:
-        # 애플리케이션 초기 설정
-        if not setup_application():
-            print("애플리케이션 초기화에 실패했습니다.")
-            sys.exit(1)
+    """
+    애플리케이션의 시작점 (Composition Root).
+    모든 최상위 구성요소를 조립하고 GUI 메인 루프를 시작합니다.
+    """
+    # 1. 애플리케이션의 메인 윈도우(Tkinter 루트) 생성
+    root = tk.Tk()
 
-        # GUI 애플리케이션 시작
-        import tkinter as tk
-        from app.gui.main_window import MainWindow
+    # 2. 메인 컨트롤러 생성.
+    #    MainController는 다른 기능 창들(템플릿 편집기, 검증 도구)을
+    #    열어주는 '지휘자' 역할을 담당합니다.
+    main_controller = MainController(root)
 
-        # Tkinter 루트 윈도우 생성
-        root = tk.Tk()
+    # 3. 메인 뷰(View) 생성.
+    #    MainWindow는 사용자가 가장 처음 보게 될 메뉴 화면이며,
+    #    모든 사용자 요청(버튼 클릭 등)을 MainController에 전달합니다.
+    app = MainWindow(root, main_controller)
 
-        # 메인 윈도우 생성 및 실행
-        app = MainWindow(root)
-        root.mainloop()
-
-    except KeyboardInterrupt:
-        print("\n프로그램이 사용자에 의해 중단되었습니다.")
-        sys.exit(0)
-    except Exception as e:
-        print(f"예상치 못한 오류가 발생했습니다: {e}")
-
-        # 디버그 모드에서는 전체 스택 트레이스 출력
-        if settings.debug_enabled:
-            import traceback
-            traceback.print_exc()
-
-        sys.exit(1)
-
-
-def show_version():
-    """버전 정보 출력"""
-    print(f"{APPLICATION_NAME} v{VERSION}")
-    print("PDF 문서 검증 자동화 시스템")
-    print("Copyright (c) 2025")
-
-
-def show_help():
-    """도움말 출력"""
-    show_version()
-    print("\n사용법:")
-    print("  python main.py              - GUI 모드로 실행")
-    print("  python main.py --version    - 버전 정보 출력")
-    print("  python main.py --help       - 이 도움말 출력")
-    print("  python main.py --debug      - 디버그 모드로 실행")
-    print("\n설정 파일: settings.json")
-    print("템플릿 파일: templates.json")
-
+    # 4. Tkinter 이벤트 루프를 시작하여 사용자 입력을 기다립니다.
+    root.mainloop()
 
 if __name__ == "__main__":
-    # 명령행 인자 처리
-    if len(sys.argv) > 1:
-        arg = sys.argv[1].lower()
-
-        if arg in ['--version', '-v']:
-            show_version()
-            sys.exit(0)
-        elif arg in ['--help', '-h']:
-            show_help()
-            sys.exit(0)
-        elif arg in ['--debug', '-d']:
-            settings.debug_enabled = True
-            settings.log_level = "DEBUG"
-            print("디버그 모드 활성화")
-        else:
-            print(f"알 수 없는 인자: {sys.argv[1]}")
-            print("사용 가능한 옵션을 보려면 --help를 사용하세요.")
-            sys.exit(1)
-
-    # 메인 프로그램 실행
     main()
+
