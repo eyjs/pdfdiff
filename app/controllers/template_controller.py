@@ -1,45 +1,53 @@
-# 파일 경로: app/controllers/template_controller.py
 import fitz
 from PIL import Image
 import os
 
-# Application Layer (Controller)
-# 역할: View(GUI)와 Domain(Service) 사이의 중재자.
-#       - View로부터 사용자 이벤트를 받아서 처리.
-#       - 필요한 데이터를 준비하여 Service에 전달하고, 로직 실행을 요청.
-#       - Service로부터 결과를 받아서 View가 화면에 표시할 수 있는 형태로 가공하여 전달.
-
 class TemplateController:
+    """
+    TemplateEditorWindow(View)와 TemplateService(Domain)를 연결하는 컨트롤러.
+    사용자 입력을 받아 서비스에 처리를 요청하고, 그 결과를 뷰에 전달합니다.
+    """
     def __init__(self, view, template_service):
         self.view = view
         self.service = template_service
+
+        # UI/비즈니스 로직 상태를 관리하는 변수
         self.pdf_doc = None
         self.current_pdf_path = None
         self.current_page_num = 0
         self.current_template_rois = {}
 
+    def initialize_view(self):
+        """
+        View가 완전히 생성되고 준비된 후 MainController에 의해 호출됩니다.
+        UI와 관련된 초기화 로직을 이 곳에 배치합니다.
+        """
+        # Template Editor는 시작 시 특별히 로드할 데이터가 없으므로 비워둡니다.
+        # 향후 초기화 로직이 필요할 경우를 대비해 구조를 유지합니다.
+        pass
+
     def _render_current_page(self):
-        """현재 페이지를 이미지로 변환하고 화면 업데이트를 요청합니다."""
+        """현재 페이지를 이미지로 변환하고 화면 업데이트를 View에 요청합니다."""
         if not self.pdf_doc:
             self.view.update_page_display(None, 0, 0, {})
             return
 
         page = self.pdf_doc[self.current_page_num]
 
-        # 1. 페이지를 이미지로 렌더링
+        # 1. 현재 캔버스 크기에 맞는 변환 매트릭스 계산
         mat = self._get_display_matrix()
+
+        # 2. PyMuPDF를 사용하여 페이지를 PIL 이미지로 렌더링
         pix = page.get_pixmap(matrix=mat, alpha=False)
         page_image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
 
-        # 2. 현재 페이지의 ROI들을 화면 좌표로 변환
+        # 3. 현재 페이지에 속한 ROI들의 PDF 좌표를 화면(스크린) 좌표로 변환
         rois_on_page = {}
         for name, roi_data in self.current_template_rois.items():
             if roi_data.get('page') == self.current_page_num:
-                # PDF 좌표를 화면 좌표로 변환
                 pdf_coords = roi_data['coords']
                 screen_coords = self._pdf_to_screen_coords(pdf_coords, mat)
 
-                # 앵커 좌표도 변환
                 anchor_screen_coords = None
                 if 'anchor_coords' in roi_data:
                     anchor_pdf_coords = roi_data['anchor_coords']
@@ -47,7 +55,7 @@ class TemplateController:
 
                 rois_on_page[name] = {**roi_data, 'screen_coords': screen_coords, 'anchor_screen_coords': anchor_screen_coords}
 
-        # 3. View에 업데이트 요청
+        # 4. 최종적으로 가공된 데이터를 View에 전달하여 화면 업데이트 요청
         self.view.update_page_display(
             page_image,
             self.current_page_num,
@@ -55,7 +63,7 @@ class TemplateController:
             rois_on_page
         )
 
-    # --- Coordinate Conversion ---
+    # --- 좌표 변환 유틸리티 메서드 ---
     def _get_display_matrix(self):
         if not self.pdf_doc or self.view.canvas.winfo_width() < 10:
             return fitz.Matrix(1, 1)
@@ -76,7 +84,7 @@ class TemplateController:
         p2 = fitz.Point(pdf_coords[2], pdf_coords[3]) * mat
         return p1.x, p1.y, p2.x, p2.y
 
-    # --- UI Event Handlers ---
+    # --- View로부터 전달받는 이벤트 핸들러 ---
     def on_window_resize(self):
         if self.pdf_doc:
             self._render_current_page()
@@ -112,22 +120,20 @@ class TemplateController:
         if not self.pdf_doc:
             return
 
-        # 1. View로부터 ROI 생성에 필요한 정보(이름, 방식 등)를 받음
         roi_info = self.view.get_roi_creation_info()
         name = roi_info.get('name')
 
         if not name:
-            return # 사용자가 취소
+            return
         if name in self.current_template_rois:
             self.view.show_error("Error", "ROI name must be unique.")
             return
 
-        # 2. Service에 비즈니스 로직(앵커 탐색 등) 처리 요청
         mat = self._get_display_matrix()
         pdf_coords = self._screen_to_pdf_coords(x1, y1, x2, y2, mat)
 
         try:
-            # Service는 복잡한 이미지 처리와 앵커 탐색을 담당
+            # 앵커 탐색과 같은 복잡한 로직은 Service에 위임
             new_roi_data = self.service.create_roi_with_anchor(
                 pdf_doc=self.pdf_doc,
                 page_num=self.current_page_num,
@@ -136,7 +142,6 @@ class TemplateController:
                 threshold=roi_info.get('threshold')
             )
 
-            # 3. Service로부터 받은 결과로 상태 업데이트 및 화면 갱신
             self.current_template_rois[name] = new_roi_data
             self._render_current_page()
         except Exception as e:
@@ -162,6 +167,7 @@ class TemplateController:
             return
 
         try:
+            # 파일 저장 로직은 Service에 위임
             self.service.save_template(
                 template_name,
                 self.current_pdf_path,
@@ -181,7 +187,6 @@ class TemplateController:
 
             template_data = self.service.load_template(template_name)
 
-            # 새 PDF 열고 상태 업데이트
             if self.pdf_doc:
                 self.pdf_doc.close()
 
@@ -189,7 +194,7 @@ class TemplateController:
             self.pdf_doc = fitz.open(pdf_path)
             self.current_pdf_path = pdf_path
             self.current_template_rois = template_data['rois']
-            self.current_page_num = 0 # 항상 첫 페이지부터 시작
+            self.current_page_num = 0
 
             self._render_current_page()
 
@@ -199,7 +204,7 @@ class TemplateController:
     def delete_template(self):
         try:
             all_templates = self.service.get_all_template_names()
-            template_name = self.view.ask_load_template(all_templates) # 선택 UI 재활용
+            template_name = self.view.ask_load_template(all_templates)
 
             if not template_name:
                 return
@@ -209,3 +214,4 @@ class TemplateController:
                 self.view.show_info("Success", f"Template '{template_name}' deleted.")
         except Exception as e:
             self.view.show_error("Delete Error", str(e))
+
