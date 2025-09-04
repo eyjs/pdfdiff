@@ -1,0 +1,38 @@
+{
+  "version": "2.0.0",
+  "debug_enabled": false,
+  "log_level": "INFO",
+  "tesseract": {
+    "executable_path": "C:\\Users\\USER\\dev\\pdfdiff\\resources\\vendor\\tesseract\\tesseract.exe",
+    "tessdata_path": "C:\\Users\\USER\\dev\\pdfdiff\\resources\\vendor\\tesseract\\tessdata",
+    "languages": "kor+eng",
+    "config_default": "--oem 3 --psm 6",
+    "config_single_word": "--oem 3 --psm 8",
+    "confidence_threshold": 60
+  },
+  "ui": {
+    "window_width": 1200,
+    "window_height": 900,
+    "min_window_width": 800,
+    "min_window_height": 600,
+    "remember_window_size": true,
+    "theme": "default",
+    "language": "ko"
+  },
+  "validation": {
+    "max_processing_time": 300,
+    "default_ssim_threshold": 0.99,
+    "layout_detection_scale": 2.0,
+    "max_concurrent_validations": 5,
+    "enable_debug_mode": false,
+    "save_debug_images": true
+  },
+  "storage": {
+    "templates_file": "templates.json",
+    "output_directory": "output",
+    "input_directory": "input",
+    "resources_directory": "resources",
+    "auto_backup": true,
+    "backup_retention_days": 30
+  }
+}
