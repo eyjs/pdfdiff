@@ -1,215 +1,211 @@
-"""
-Template Controller
-템플릿 관리 컨트롤러
-"""
-import tkinter as tk
-from tkinter import messagebox, ttk, filedialog, simpledialog
-from typing import Optional, Callable
-import json, os, fitz
-from PIL import Image, ImageTk
-import cv2, numpy as np
+# 파일 경로: app/controllers/template_controller.py
+import fitz
+from PIL import Image
+import os
 
-from domain.services.template_service import TemplateService
-from infrastructure.repositories.json_template_repository import JsonTemplateRepository
-from shared.exceptions import *
-
+# Application Layer (Controller)
+# 역할: View(GUI)와 Domain(Service) 사이의 중재자.
+#       - View로부터 사용자 이벤트를 받아서 처리.
+#       - 필요한 데이터를 준비하여 Service에 전달하고, 로직 실행을 요청.
+#       - Service로부터 결과를 받아서 View가 화면에 표시할 수 있는 형태로 가공하여 전달.
 
 class TemplateController:
-    """템플릿 관리 컨트롤러"""
-
-    def __init__(self):
-        # 의존성 주입 (Dependency Injection)
-        self.template_repository = JsonTemplateRepository()
-        self.template_service = TemplateService(self.template_repository)
-        
-        # UI 참조
-        self.current_window = None
-        self.status_label = None
-        self.template_listbox = None
-        self.canvas = None
-        self.page_label = None
-
-        # PDF 및 ROI 관련 변수
+    def __init__(self, view, template_service):
+        self.view = view
+        self.service = template_service
         self.pdf_doc = None
-        self.current_page = 0
-        self.rois = {}
         self.current_pdf_path = None
-        self.start_x, self.start_y, self.current_rect = 0, 0, None
+        self.current_page_num = 0
+        self.current_template_rois = {}
 
-        # 템플릿 데이터 로드 (초기화 시)
-        self.templates = self.template_service.get_all_templates()
+    def _render_current_page(self):
+        """현재 페이지를 이미지로 변환하고 화면 업데이트를 요청합니다."""
+        if not self.pdf_doc:
+            self.view.update_page_display(None, 0, 0, {})
+            return
 
-    def show_template_manager(self, parent: tk.Tk, on_close: Optional[Callable] = None):
-        """템플릿 관리자 창 표시"""
+        page = self.pdf_doc[self.current_page_num]
+
+        # 1. 페이지를 이미지로 렌더링
+        mat = self._get_display_matrix()
+        pix = page.get_pixmap(matrix=mat, alpha=False)
+        page_image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+
+        # 2. 현재 페이지의 ROI들을 화면 좌표로 변환
+        rois_on_page = {}
+        for name, roi_data in self.current_template_rois.items():
+            if roi_data.get('page') == self.current_page_num:
+                # PDF 좌표를 화면 좌표로 변환
+                pdf_coords = roi_data['coords']
+                screen_coords = self._pdf_to_screen_coords(pdf_coords, mat)
+
+                # 앵커 좌표도 변환
+                anchor_screen_coords = None
+                if 'anchor_coords' in roi_data:
+                    anchor_pdf_coords = roi_data['anchor_coords']
+                    anchor_screen_coords = self._pdf_to_screen_coords(anchor_pdf_coords, mat)
+
+                rois_on_page[name] = {**roi_data, 'screen_coords': screen_coords, 'anchor_screen_coords': anchor_screen_coords}
+
+        # 3. View에 업데이트 요청
+        self.view.update_page_display(
+            page_image,
+            self.current_page_num,
+            len(self.pdf_doc),
+            rois_on_page
+        )
+
+    # --- Coordinate Conversion ---
+    def _get_display_matrix(self):
+        if not self.pdf_doc or self.view.canvas.winfo_width() < 10:
+            return fitz.Matrix(1, 1)
+        page = self.pdf_doc[self.current_page_num]
+        zoom = min(
+            self.view.canvas.winfo_width() / page.rect.width,
+            self.view.canvas.winfo_height() / page.rect.height
+        )
+        return fitz.Matrix(zoom, zoom)
+
+    def _screen_to_pdf_coords(self, x1, y1, x2, y2, mat):
+        p1 = fitz.Point(min(x1, x2), min(y1, y2)) * ~mat
+        p2 = fitz.Point(max(x1, x2), max(y1, y2)) * ~mat
+        return [p1.x, p1.y, p2.x, p2.y]
+
+    def _pdf_to_screen_coords(self, pdf_coords, mat):
+        p1 = fitz.Point(pdf_coords[0], pdf_coords[1]) * mat
+        p2 = fitz.Point(pdf_coords[2], pdf_coords[3]) * mat
+        return p1.x, p1.y, p2.x, p2.y
+
+    # --- UI Event Handlers ---
+    def on_window_resize(self):
+        if self.pdf_doc:
+            self._render_current_page()
+
+    def open_pdf_file(self):
+        path = self.view.ask_open_filename()
+        if not path:
+            return
+
         try:
-            # 기존 창이 있으면 포커스만 이동
-            if self.current_window and self.current_window.winfo_exists():
-                self.current_window.lift()
-                self.current_window.focus_force()
-                return
+            if self.pdf_doc:
+                self.pdf_doc.close()
 
-            # 새 창 생성
-            self.current_window = tk.Toplevel(parent)
-            self.current_window.title("템플릿 관리자")
-            self.current_window.geometry("1200x850")
-
-            # 창 닫힘 이벤트 처리
-            def on_window_close():
-                self.cleanup()
-                if on_close:
-                    on_close()
-
-            self.current_window.protocol("WM_DELETE_WINDOW", on_window_close)
-
-            # 실제 템플릿 관리자 UI 로드
-            self._load_template_manager_ui()
-
+            self.pdf_doc = fitz.open(path)
+            self.current_pdf_path = path
+            self.current_page_num = 0
+            self.current_template_rois = {}
+            self._render_current_page()
         except Exception as e:
-            raise TemplateException(f"템플릿 관리자 실행 실패: {str(e)}")
+            self.view.show_error("Error", f"Failed to open PDF:\n{e}")
 
-    def _load_template_manager_ui(self):
-        """템플릿 관리자 UI 로드"""
-        top_frame = ttk.Frame(self.current_window, padding=10); top_frame.pack(side=tk.TOP, fill=tk.X)
-        ttk.Button(top_frame, text="새 PDF 열기", command=self.open_pdf).pack(side=tk.LEFT, padx=5)
+    def prev_page(self):
+        if self.pdf_doc and self.current_page_num > 0:
+            self.current_page_num -= 1
+            self._render_current_page()
 
-        nav_frame = ttk.Frame(top_frame)
-        ttk.Button(nav_frame, text="◀ 이전", command=self.prev_page).pack(side=tk.LEFT)
-        self.page_label = ttk.Label(nav_frame, text="페이지: 0/0", width=15, anchor="center"); self.page_label.pack(side=tk.LEFT, padx=5)
-        ttk.Button(nav_frame, text="다음 ▶", command=self.next_page).pack(side=tk.LEFT)
-        nav_frame.pack(side=tk.LEFT, padx=10)
+    def next_page(self):
+        if self.pdf_doc and self.current_page_num < len(self.pdf_doc) - 1:
+            self.current_page_num += 1
+            self._render_current_page()
 
-        ttk.Button(top_frame, text="템플릿 삭제", command=self.delete_template).pack(side=tk.RIGHT, padx=5)
-        ttk.Button(top_frame, text="템플릿 저장", command=self.save_template).pack(side=tk.RIGHT)
-        ttk.Button(top_frame, text="템플릿 불러오기", command=self.load_template_from_list).pack(side=tk.RIGHT, padx=5)
+    def add_roi(self, x1, y1, x2, y2):
+        if not self.pdf_doc:
+            return
 
-        main_frame = ttk.Frame(self.current_window, padding=(10, 0, 10, 10)); main_frame.pack(fill=tk.BOTH, expand=True)
-        self.canvas = tk.Canvas(main_frame, bg='lightgrey', cursor="plus"); self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        self.canvas.bind("<ButtonPress-1>", self.start_drag)
-        self.canvas.bind("<B1-Motion>", self.drag_motion)
-        self.canvas.bind("<ButtonRelease-1>", self.end_drag)
+        # 1. View로부터 ROI 생성에 필요한 정보(이름, 방식 등)를 받음
+        roi_info = self.view.get_roi_creation_info()
+        name = roi_info.get('name')
 
-        right_panel = ttk.Frame(main_frame); right_panel.pack(side=tk.RIGHT, fill=tk.Y, padx=5)
-        roi_frame = ttk.LabelFrame(right_panel, text="ROI 목록 (더블클릭으로 삭제)", padding=5); roi_frame.pack(fill=tk.BOTH, expand=True)
-        self.roi_listbox = tk.Listbox(roi_frame, width=40); self.roi_listbox.pack(fill=tk.BOTH, expand=True)
-        self.roi_listbox.bind("<Double-1>", self.delete_selected_roi)
+        if not name:
+            return # 사용자가 취소
+        if name in self.current_template_rois:
+            self.view.show_error("Error", "ROI name must be unique.")
+            return
 
-        status_frame = ttk.LabelFrame(right_panel, text="사용법", padding=5); status_frame.pack(fill=tk.X, pady=(5,0))
-        ttk.Label(status_frame, text="1. PDF 위에서 검증 영역을 드래그하세요.\n2. 자동 앵커가 ROI 주변에서 탐색됩니다.\n3. 품질 점수 기반 최적 앵커가 선택됩니다.", justify=tk.LEFT).pack(anchor=tk.W)
+        # 2. Service에 비즈니스 로직(앵커 탐색 등) 처리 요청
+        mat = self._get_display_matrix()
+        pdf_coords = self._screen_to_pdf_coords(x1, y1, x2, y2, mat)
 
-        self.status_label = ttk.Label(self.current_window, text="템플릿 관리자가 준비되었습니다.", relief=tk.SUNKEN, anchor=tk.W)
-        self.status_label.pack(fill=tk.X, side=tk.BOTTOM)
-
-        self.current_window.bind("<Configure>", lambda e: self.display_page() if self.pdf_doc else None)
-
-    def create_new_template(self):
-        """새 템플릿 생성"""
         try:
-            from tkinter import filedialog, simpledialog
-
-            # PDF 파일 선택
-            pdf_path = filedialog.askopenfilename(
-                title="템플릿용 PDF 선택",
-                filetypes=[("PDF files", "*.pdf")]
+            # Service는 복잡한 이미지 처리와 앵커 탐색을 담당
+            new_roi_data = self.service.create_roi_with_anchor(
+                pdf_doc=self.pdf_doc,
+                page_num=self.current_page_num,
+                roi_coords=pdf_coords,
+                method=roi_info.get('method'),
+                threshold=roi_info.get('threshold')
             )
 
-            if not pdf_path:
-                return
+            # 3. Service로부터 받은 결과로 상태 업데이트 및 화면 갱신
+            self.current_template_rois[name] = new_roi_data
+            self._render_current_page()
+        except Exception as e:
+            self.view.show_error("Anchor Error", str(e))
 
-            # 템플릿 이름 입력
-            template_name = simpledialog.askstring(
-                "템플릿 이름",
-                "새 템플릿의 이름을 입력하세요:",
-                parent=self.current_window
+    def delete_selected_roi(self):
+        roi_name = self.view.get_selected_roi_name()
+        if not roi_name:
+            return
+
+        if self.view.ask_yes_no("Confirm Delete", f"Delete ROI '{roi_name}'?"):
+            del self.current_template_rois[roi_name]
+            self._render_current_page()
+
+    def save_template(self):
+        if not self.current_template_rois or not self.current_pdf_path:
+            self.view.show_warning("Warning", "Open a PDF and define at least one ROI.")
+            return
+
+        default_name = os.path.splitext(os.path.basename(self.current_pdf_path))[0]
+        template_name = self.view.ask_string("Save Template", "Template Name:", initial_value=default_name)
+        if not template_name:
+            return
+
+        try:
+            self.service.save_template(
+                template_name,
+                self.current_pdf_path,
+                self.current_template_rois
             )
+            self.view.show_info("Success", f"Template '{template_name}' saved.")
+        except Exception as e:
+            self.view.show_error("Save Error", str(e))
+
+    def load_template(self):
+        try:
+            all_templates = self.service.get_all_template_names()
+            template_name = self.view.ask_load_template(all_templates)
 
             if not template_name:
                 return
 
-            # 템플릿 생성
-            template = self.template_service.create_template(template_name, pdf_path)
+            template_data = self.service.load_template(template_name)
 
-            if self.template_service.save_template(template):
-                self.update_status(f"템플릿 '{template_name}'이 생성되었습니다.")
-                self.refresh_template_list()
-                messagebox.showinfo("성공", f"템플릿 '{template_name}'이 생성되었습니다.")
-            else:
-                messagebox.showerror("오류", "템플릿 저장에 실패했습니다.")
+            # 새 PDF 열고 상태 업데이트
+            if self.pdf_doc:
+                self.pdf_doc.close()
 
-        except TemplateAlreadyExistsError as e:
-            messagebox.showerror("오류", str(e))
-        except Exception as e:
-            messagebox.showerror("오류", f"템플릿 생성 실패: {str(e)}")
+            pdf_path = template_data['original_pdf_path']
+            self.pdf_doc = fitz.open(pdf_path)
+            self.current_pdf_path = pdf_path
+            self.current_template_rois = template_data['rois']
+            self.current_page_num = 0 # 항상 첫 페이지부터 시작
 
-    def edit_template(self):
-        """템플릿 편집"""
-        try:
-            selection = self.template_listbox.curselection()
-            if not selection:
-                messagebox.showwarning("알림", "편집할 템플릿을 선택하세요.")
-                return
-
-            template_name = self.template_listbox.get(selection[0])
-            template = self.template_service.get_template(template_name)
-
-            if not template:
-                messagebox.showerror("오류", f"템플릿 '{template_name}'을 찾을 수 없습니다.")
-                return
-
-            messagebox.showinfo("알림", f"'{template_name}' 템플릿 편집기가 곧 구현됩니다.")
+            self._render_current_page()
 
         except Exception as e:
-            messagebox.showerror("오류", f"템플릿 편집 실패: {str(e)}")
+            self.view.show_error("Load Error", str(e))
 
     def delete_template(self):
-        """템플릿 삭제"""
         try:
-            selection = self.template_listbox.curselection()
-            if not selection:
-                messagebox.showwarning("알림", "삭제할 템플릿을 선택하세요.")
+            all_templates = self.service.get_all_template_names()
+            template_name = self.view.ask_load_template(all_templates) # 선택 UI 재활용
+
+            if not template_name:
                 return
 
-            template_name = self.template_listbox.get(selection[0])
-
-            # 확인 대화상자
-            if not messagebox.askyesno(
-                "확인",
-                f"'{template_name}' 템플릿을 정말 삭제하시겠습니까?",
-                parent=self.current_window
-            ):
-                return
-
-            # 템플릿 삭제
-            if self.template_service.delete_template(template_name):
-                self.update_status(f"템플릿 '{template_name}'이 삭제되었습니다.")
-                self.refresh_template_list()
-                messagebox.showinfo("성공", f"템플릿 '{template_name}'이 삭제되었습니다.")
-            else:
-                messagebox.showerror("오류", "템플릿 삭제에 실패했습니다.")
-
+            if self.view.ask_yes_no("Confirm Delete", f"Are you sure you want to delete template '{template_name}'?"):
+                self.service.delete_template(template_name)
+                self.view.show_info("Success", f"Template '{template_name}' deleted.")
         except Exception as e:
-            messagebox.showerror("오류", f"템플릿 삭제 실패: {str(e)}")
-
-    def refresh_template_list(self):
-        """템플릿 목록 새로고침"""
-        try:
-            self.template_listbox.delete(0, tk.END)
-
-            template_names = self.template_service.get_template_names()
-            for name in sorted(template_names):
-                self.template_listbox.insert(tk.END, name)
-
-            self.update_status(f"{len(template_names)}개의 템플릿이 있습니다.")
-
-        except Exception as e:
-            self.update_status(f"목록 새로고침 실패: {str(e)}")
-
-    def update_status(self, message: str):
-        """상태 메시지 업데이트"""
-        if self.status_label:
-            self.status_label.config(text=message)
-
-    def cleanup(self):
-        """리소스 정리"""
-        if self.current_window and self.current_window.winfo_exists():
-            self.current_window.destroy()
-        self.current_window = None
+            self.view.show_error("Delete Error", str(e))
