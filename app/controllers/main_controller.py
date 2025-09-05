@@ -33,6 +33,9 @@ class MainController:
         """
         # 1. 새 Toplevel 창 생성
         editor_window = tk.Toplevel(self.root)
+        editor_window.transient(self.root)
+        editor_window.grab_set()
+
 
         # --- 의존성 주입 (Template Editor에 필요한 객체들 조립) ---
         # 2. Infrastructure Layer 객체 생성 (외부 기술 구현체)
@@ -62,6 +65,8 @@ class MainController:
         """
         # 1. 새 Toplevel 창 생성
         validator_window = tk.Toplevel(self.root)
+        validator_window.transient(self.root)
+        validator_window.grab_set()
 
         # --- 의존성 주입 (Validation Tool에 필요한 객체들 조립) ---
         # 2. Infrastructure Layer 객체 생성
