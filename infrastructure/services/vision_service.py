@@ -11,10 +11,12 @@ import fitz
 class VisionService:
     def find_best_anchor(self, pdf_doc, page_num, roi_coords):
         """OpenCV를 사용하여 최적의 앵커 영역을 탐색합니다."""
+        print("Finding best anchor using Sliding Window...")
         candidates = self._generate_anchor_candidates(pdf_doc, page_num, roi_coords)
         if not candidates:
             return None
 
+        print(f"Evaluated {len(candidates)} anchor candidates.")
         # 점수가 가장 높은 후보를 선택
         candidates.sort(key=lambda x: x['score'], reverse=True)
         best_candidate = candidates[0]
@@ -27,28 +29,42 @@ class VisionService:
         page_width, page_height = page.rect.width, page.rect.height
         x0, y0, x1, y1 = roi
 
-        # ROI 주변의 4방향에 대한 앵커 후보 영역 정의
-        offsets = {
-            "left":   [max(0, x0 - 120), y0 - 10, x0 - 5, y1 + 10],
-            "right":  [x1 + 5, y0 - 10, min(page_width, x1 + 120), y1 + 10],
-            "top":    [x0 - 10, max(0, y0 - 60), x1 + 10, y0 - 5],
-            "bottom": [x0 - 10, y1 + 5, x1 + 10, min(page_height, y1 + 60)]
+        # 슬라이딩 윈도우 파라미터 정의
+        search_margin = 150  # ROI에서 얼마나 멀리까지 탐색할지
+        win_w, win_h = 120, 40 # 앵커 후보 창 크기
+        step = 30            # 몇 픽셀씩 이동하며 탐색할지
+
+        # 4방향 (상, 하, 좌, 우) 탐색 영역 정의
+        search_areas = {
+            "top": (x0 - win_w, y0 - search_margin - win_h, x1 + win_w, y0 - 5),
+            "bottom": (x0 - win_w, y1 + 5, x1 + win_w, y1 + search_margin + win_h),
+            "left": (x0 - search_margin - win_w, y0 - win_h, x0 - 5, y1 + win_h),
+            "right": (x1 + 5, y0 - win_h, x1 + search_margin + win_w, y1 + win_h),
         }
 
         results = []
-        for label, coords in offsets.items():
-            try:
-                # 후보 영역 이미지 추출
-                img = self._extract_pdf_region(page, coords)
-                if img is None or img.size == 0:
-                    continue
+        for label, area in search_areas.items():
+            area_x0, area_y0, area_x1, area_y1 = area
+            
+            # 페이지 경계 내에서 탐색
+            area_x0, area_y0 = max(0, area_x0), max(0, area_y0)
+            area_x1, area_y1 = min(page_width, area_x1), min(page_height, area_y1)
 
-                # 이미지 품질 평가
-                score = self._evaluate_anchor_quality(img)
-                results.append({'label': label, 'coords': coords, 'score': score})
-            except Exception as e:
-                print(f"Error evaluating anchor candidate {label}: {e}")
-                continue
+            # 정의된 step으로 슬라이딩 윈도우 탐색
+            for y in range(int(area_y0), int(area_y1 - win_h), step):
+                for x in range(int(area_x0), int(area_x1 - win_w), step):
+                    coords = [x, y, x + win_w, y + win_h]
+                    try:
+                        img = self._extract_pdf_region(page, coords)
+                        if img is None or img.size == 0:
+                            continue
+
+                        score = self._evaluate_anchor_quality(img)
+                        # 점수가 0 이상인 유의미한 후보만 추가
+                        if score > 0:
+                            results.append({'label': label, 'coords': coords, 'score': score})
+                    except Exception:
+                        continue # 에러 발생 시 해당 후보는 건너뜀
         return results
 
     def _extract_pdf_region(self, page, coords, scale=2.0):
