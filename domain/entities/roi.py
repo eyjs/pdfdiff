@@ -23,16 +23,18 @@ class ROI:
         name: ROI 식별 이름
         page: 페이지 번호 (0부터 시작)
         coords: [x1, y1, x2, y2] 좌표
-        anchor_coords: 앵커 영역 좌표 (위치 추적용)
-        method: 검증 방식 (OCR 또는 CONTOUR)
+        method: 검증 방식
         threshold: 검증 임계값
+        anchor_coords: 앵커 영역 좌표 (위치 추적용)
+        ocr_config: OCR 전용 설정 (dict)
     """
     name: str
     page: int
-    coords: List[float]  # [x1, y1, x2, y2]
+    coords: List[float]
     method: ValidationMethod
     threshold: int
-    anchor_coords: Optional[List[float]] = None  # [x1, y1, x2, y2]
+    anchor_coords: Optional[List[float]] = None
+    ocr_config: Optional[dict] = None
     
     def __post_init__(self):
         """데이터 검증"""
@@ -85,6 +87,8 @@ class ROI:
         
         if self.anchor_coords:
             result["anchor_coords"] = self.anchor_coords
+        if self.ocr_config:
+            result["ocr_config"] = self.ocr_config
             
         return result
     
@@ -97,5 +101,6 @@ class ROI:
             coords=data["coords"],
             method=ValidationMethod(data["method"]),
             threshold=data["threshold"],
-            anchor_coords=data.get("anchor_coords")
+            anchor_coords=data.get("anchor_coords"),
+            ocr_config=data.get("ocr_config")
         )

@@ -1,14 +1,11 @@
 import fitz
 import cv2
 import numpy as np
-import pytesseract
 import re
 from skimage.metrics import structural_similarity as ssim
 import logging
-import os
-from pathlib import Path
-import os
-from pathlib import Path
+
+from domain.services.ocr_service import OcrService
 
 # 로깅 설정: 문제 발생 시 원인 파악을 용이하게 함
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -18,30 +15,12 @@ class ValidationVisionService:
     원본 문서와 기입된 문서의 ROI를 비교하여 기입 여부를 검증하는 통합 이미지 처리 서비스.
     강력한 좌표 보정 파이프라인을 내장하여 스캔/복사로 인한 레이아웃 변형에 대응합니다.
     """
-    def __init__(self, config=None):
+    def __init__(self, ocr_service: OcrService, config=None):
         """서비스 초기화 시, 내부에 필요한 비전 컴포넌트를 생성합니다."""
         self.config = config or {}
+        self.ocr_service = ocr_service
         # 좌표 보정을 위한 내부 FeatureMatcher 초기화
         self.feature_matcher = self._FeatureMatcher()
-        
-        # Tesseract 경로 설정 (애플리케이션 전체에서 적용되도록)
-        try:
-            # 현재 파일(infrastructure/services/validation_vision_service.py)에서 루트 디렉토리까지의 상대 경로 계산
-            current_dir = Path(__file__).resolve().parent.parent.parent
-            tesseract_exe = current_dir / "resources" / "vendor" / "tesseract" / "tesseract.exe"
-            # TESSDATA_PREFIX는 .traineddata 파일들이 있는 tessdata 폴더를 직접 가리켜야 합니다.
-            tessdata_dir = current_dir / "resources" / "vendor" / "tesseract" / "tessdata"
-
-            if tesseract_exe.exists():
-                pytesseract.pytesseract.tesseract_cmd = str(tesseract_exe)
-                os.environ['TESSDATA_PREFIX'] = str(tessdata_dir)
-                logging.info(f"Tesseract 경로 설정 완료: {tesseract_exe}")
-                logging.info(f"TESSDATA_PREFIX 설정 완료: {tessdata_dir}")
-                logging.info(f"Tesseract 경로 설정 완료: {tesseract_exe}")
-            else:
-                logging.error(f"Tesseract 실행 파일을 찾을 수 없습니다: {tesseract_exe}")
-        except Exception as e:
-            logging.error(f"Tesseract 경로 설정 중 오류 발생: {e}")
 
     def validate_roi(self, original_doc, filled_doc, field_name, roi_info):
         """
@@ -96,7 +75,7 @@ class ValidationVisionService:
 
             # --- 4. 검증 로직 분기 ---
             if method == "ocr":
-                self._validate_with_ocr(result, original_roi_resized, filled_roi_color, threshold)
+                self._validate_with_ocr(result, original_roi_resized, filled_roi_color, threshold, roi_info)
             elif method == "contour":
                 self._validate_with_contour(result, original_roi_resized, filled_roi_color, threshold)
             elif method == "ssim":
@@ -170,26 +149,17 @@ class ValidationVisionService:
         return globally_corrected_coords
 
     # --- 검증 헬퍼 메서드들 (구체화된 로직) ---
-    def _validate_with_ocr(self, result, original_roi, filled_roi, threshold):
-        # 1. 배경(인쇄된 텍스트) 제거를 위해 두 이미지를 그레이스케일로 변환
-        gray_original = cv2.cvtColor(original_roi, cv2.COLOR_BGR2GRAY)
+    def _validate_with_ocr(self, result, original_roi, filled_roi, threshold, roi_info):
+        # 이전의 안정적인 로직으로 복귀: 입력된 이미지를 직접 처리
         gray_filled = cv2.cvtColor(filled_roi, cv2.COLOR_BGR2GRAY)
 
-        # 2. 이미지 차감(Difference)을 통해 추가된 내용(손글씨)만 추출
-        diff_img = cv2.absdiff(gray_original, gray_filled)
+        # adaptiveThreshold는 조명 변화에 강건하며, 이전에 잘 동작했음
+        # THRESH_BINARY를 사용하여 흰색 글씨/검은 배경 이미지를 생성
+        binary_img = cv2.adaptiveThreshold(gray_filled, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
 
-        # 3. 차이 이미지에서 텍스트를 명확하게 하기 위해 이진화 처리
-        #    약간의 노이즈를 제거하고, Otsu's Binarization으로 최적의 임계값 자동 적용
-        blur_diff = cv2.GaussianBlur(diff_img, (5, 5), 0)
-        _, binary_roi = cv2.threshold(blur_diff, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-
-        # Tesseract는 흰 배경에 검은 글씨를 더 잘 인식하므로, 색상 반전
-        binary_roi = cv2.bitwise_not(binary_roi)
-
-        # 4. 손글씨만 남은 이미지로 OCR 실행
-        config_str = '--psm 7'
-        raw_text = pytesseract.image_to_string(binary_roi, lang='kor', config=config_str)
-        clean_text = re.sub(r'[\s\W_]+', '', raw_text)
+        # ROI의 개별 설정을 가져와 OCR 실행
+        ocr_config = roi_info.get('ocr_config')
+        clean_text = self.ocr_service.recognize_text(binary_img, config=ocr_config)
 
         # --- DEBUG IMAGE SAVING (OCR 전용) ---
         try:
@@ -197,10 +167,7 @@ class ValidationVisionService:
             output_dir = "output/debug"
             os.makedirs(output_dir, exist_ok=True)
             field_name = result["field_name"]
-            cv2.imwrite(os.path.join(output_dir, f"{field_name}_ocr_1_original.png"), original_roi)
-            cv2.imwrite(os.path.join(output_dir, f"{field_name}_ocr_2_filled.png"), filled_roi)
-            cv2.imwrite(os.path.join(output_dir, f"{field_name}_ocr_3_diff.png"), diff_img)
-            cv2.imwrite(os.path.join(output_dir, f"{field_name}_ocr_4_binary.png"), binary_roi)
+            cv2.imwrite(os.path.join(output_dir, f"{field_name}_ocr_final_input.png"), binary_img)
         except Exception as e:
             logging.warning(f"Failed to save OCR debug images for {field_name}: {e}")
         # --- END DEBUG ---

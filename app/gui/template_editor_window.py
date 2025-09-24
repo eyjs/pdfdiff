@@ -141,49 +141,81 @@ class TemplateEditorWindow:
 
         result = {}
 
+        # --- 변수 설정 ---
         name_var = tk.StringVar()
-        method_var = tk.StringVar(value="ocr")
-        threshold_var = tk.IntVar(value=3)
+        method_var = tk.StringVar(value="ssim") # 기본값을 ssim으로 변경
+        threshold_var = tk.IntVar()
+        ocr_type_var = tk.StringVar(value="kor_eng") # OCR 세부 타입 변수
 
-        # --- UI Elements ---
+        # --- UI 요소 생성 ---
+        # 이름
         ttk.Label(dialog, text="Name:").pack(padx=10, pady=5)
         name_entry = ttk.Entry(dialog, textvariable=name_var)
         name_entry.pack(padx=10)
         name_entry.focus_set()
 
-        ttk.Label(dialog, text="검증 타입:").pack(padx=10, pady=5)
+        # 검증 방식 (ssim, ocr, contour)
+        ttk.Label(dialog, text="검증 방식:").pack(padx=10, pady=5)
         method_frame = ttk.Frame(dialog)
+        ttk.Radiobutton(method_frame, text="SSIM", variable=method_var, value="ssim").pack(anchor=tk.W)
         ttk.Radiobutton(method_frame, text="OCR", variable=method_var, value="ocr").pack(anchor=tk.W)
         ttk.Radiobutton(method_frame, text="Contour", variable=method_var, value="contour").pack(anchor=tk.W)
-        ttk.Radiobutton(method_frame, text="SSIM", variable=method_var, value="ssim").pack(anchor=tk.W)
         method_frame.pack(padx=20, anchor=tk.W)
 
+        # OCR 세부 옵션 (OCR 선택 시에만 보임)
+        ocr_options_frame = ttk.Frame(dialog)
+        ttk.Label(ocr_options_frame, text="OCR 타입:").pack(padx=10, pady=5)
+        ocr_type_frame = ttk.Frame(ocr_options_frame)
+        ttk.Radiobutton(ocr_type_frame, text="한글+영어", variable=ocr_type_var, value="kor_eng").pack(anchor=tk.W)
+        ttk.Radiobutton(ocr_type_frame, text="한글 전용", variable=ocr_type_var, value="kor").pack(anchor=tk.W)
+        ttk.Radiobutton(ocr_type_frame, text="영어 전용", variable=ocr_type_var, value="eng").pack(anchor=tk.W)
+        ttk.Radiobutton(ocr_type_frame, text="숫자+기호 전용", variable=ocr_type_var, value="digits").pack(anchor=tk.W)
+        ocr_type_frame.pack(padx=20, anchor=tk.W)
+
+        # 임계값
         ttk.Label(dialog, text="Threshold:").pack(padx=10, pady=5)
         ttk.Entry(dialog, textvariable=threshold_var, width=10).pack(padx=10)
-        
         suggestion_label = ttk.Label(dialog, text="", foreground="grey")
         suggestion_label.pack(padx=10, pady=(0, 5))
 
-        # --- Logic ---
-        def update_threshold_and_suggestion(*_):
+        # --- UI 로직 ---
+        def update_ui_based_on_method(*_):
             method = method_var.get()
             if method == "ocr":
-                threshold_var.set(3)
-                suggestion_label.config(text="(글자 수 최소값)")
-            elif method == "contour":
-                threshold_var.set(suggested_contour_threshold)
-                suggestion_label.config(text=f"(추천 값: {suggested_contour_threshold}) - 변경된 픽셀 면적")
-            else: # SSIM
-                threshold_var.set(10)
-                suggestion_label.config(text="(100 - 유사도 % 최소값)")
+                ocr_options_frame.pack(padx=10, pady=5, anchor=tk.W)
+                threshold_var.set(2) # OCR 기본 임계값
+                suggestion_label.config(text="(인식되어야 할 최소 글자 수)")
+            else:
+                ocr_options_frame.pack_forget()
+                if method == "ssim":
+                    threshold_var.set(15) # SSIM 기본 임계값
+                    suggestion_label.config(text="(100 - 유사도 % 최소값)")
+                else: # Contour
+                    threshold_var.set(suggested_contour_threshold)
+                    suggestion_label.config(text=f"(추천 값: {suggested_contour_threshold}) - 변경된 픽셀 면적")
         
-        method_var.trace('w', update_threshold_and_suggestion)
-        update_threshold_and_suggestion() # 초기값 설정
+        method_var.trace('w', update_ui_based_on_method)
+        update_ui_based_on_method() # 초기 UI 설정
 
         def on_save():
             result['name'] = name_var.get().strip()
             result['method'] = method_var.get()
             result['threshold'] = threshold_var.get()
+            
+            if result['method'] == 'ocr':
+                ocr_type = ocr_type_var.get()
+                if ocr_type == 'digits':
+                    result['ocr_config'] = {
+                        'lang': 'eng',
+                        'whitelist': '0123456789,.'
+                    }
+                elif ocr_type == 'kor':
+                    result['ocr_config'] = {'lang': 'kor'}
+                elif ocr_type == 'eng':
+                    result['ocr_config'] = {'lang': 'eng'}
+                else: # kor_eng
+                    result['ocr_config'] = {'lang': 'kor+eng'}
+
             dialog.destroy()
 
         ttk.Button(dialog, text="Save", command=on_save).pack(pady=10)

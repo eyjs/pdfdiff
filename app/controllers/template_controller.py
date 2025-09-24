@@ -151,7 +151,8 @@ class TemplateController:
                 page_num=self.current_page_num,
                 roi_coords=pdf_coords,
                 method=roi_info.get('method'),
-                threshold=roi_info.get('threshold')
+                threshold=roi_info.get('threshold'),
+                ocr_config=roi_info.get('ocr_config') # ocr_config 전달
             )
 
             self.current_template_rois[name] = new_roi_data

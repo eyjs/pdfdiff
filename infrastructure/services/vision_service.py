@@ -82,5 +82,5 @@ class VisionService:
         edge_density_score = int(np.sum(edges) / 255)
 
         # 각 점수에 가중치를 부여하여 최종 점수 계산
-        total_score = (harris_score * 2.0) + (feature_quality_score * 1.5) + (edge_density_score * 1.0)
+        total_score = (harris_score * 1.0) + (feature_quality_score * 2.5) + (edge_density_score * 0.5)
         return total_score

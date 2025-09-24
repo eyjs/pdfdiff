@@ -16,7 +16,7 @@ class TemplateService:
         self.repository = template_repository
         self.vision_service = vision_service
 
-    def create_roi_with_anchor(self, pdf_doc, page_num, roi_coords, method, threshold):
+    def create_roi_with_anchor(self, pdf_doc, page_num, roi_coords, method, threshold, ocr_config=None):
         """
         앵커를 탐색하고 완전한 ROI 데이터를 생성하는 비즈니스 로직.
         """
@@ -34,7 +34,8 @@ class TemplateService:
             'coords': roi_coords,
             'anchor_coords': best_anchor_coords,
             'method': method,
-            'threshold': threshold
+            'threshold': threshold,
+            'ocr_config': ocr_config
         }
         return roi_data
 
