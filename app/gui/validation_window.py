@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import ttk, scrolledtext
+from tkinter import ttk, scrolledtext, messagebox
 from PIL import Image, ImageTk
 
 class ValidationWindow:
@@ -67,8 +67,14 @@ class ValidationWindow:
         self.browse_btn.grid(row=2, column=2, padx=5, pady=5)
 
         # --- 2. Action Frame: 실행 버튼 ---
-        self.validate_btn = ttk.Button(main_frame, text="검사 실행", command=self.controller.run_validation, state=tk.DISABLED)
-        self.validate_btn.grid(row=1, column=0, pady=10)
+        action_frame = ttk.Frame(main_frame)
+        action_frame.grid(row=1, column=0, pady=10)
+
+        self.validate_btn = ttk.Button(action_frame, text="검사 실행", command=self.controller.run_validation, state=tk.DISABLED)
+        self.validate_btn.pack(side=tk.LEFT, padx=10)
+
+        self.save_btn = ttk.Button(action_frame, text="결과 PDF 저장", command=self.controller.save_result_pdf, state=tk.DISABLED)
+        self.save_btn.pack(side=tk.LEFT, padx=10)
 
         # --- 3. Viewer Frame: PDF 비교 뷰어 ---
         self.viewer_frame = ttk.Frame(main_frame)
@@ -117,10 +123,12 @@ class ValidationWindow:
             self.target_label.config(text="검사 대상 파일:")
             self.browse_btn.config(text="파일 찾기")
             self.viewer_frame.grid() # 파일 모드에서는 뷰어 보이기
+            self.save_btn.pack(side=tk.LEFT, padx=10) # 저장 버튼 보이기
         else: # 폴더 모드
             self.target_label.config(text="검사 대상 폴더:")
             self.browse_btn.config(text="폴더 찾기")
             self.viewer_frame.grid_remove() # 폴더 모드에서는 뷰어 숨기기
+            self.save_btn.pack_forget() # 저장 버튼 숨기기
 
     # --- 아래는 Controller가 View를 제어하기 위해 호출하는 메서드들 ---
 
@@ -131,6 +139,10 @@ class ValidationWindow:
     def update_button_state(self, is_ready):
         """'검사 실행' 버튼의 활성화/비활성화 상태를 업데이트합니다."""
         self.validate_btn.config(state=tk.NORMAL if is_ready else tk.DISABLED)
+
+    def update_save_button_state(self, is_ready):
+        """'결과 저장' 버튼의 활성화/비활성화 상태를 업데이트합니다."""
+        self.save_btn.config(state=tk.NORMAL if is_ready else tk.DISABLED)
 
     def log(self, message):
         """로그 창에 메시지를 추가합니다."""
@@ -180,4 +192,14 @@ class ValidationWindow:
         self.page_label.config(text=f"페이지: {page_num + 1}/{total_pages}")
         self.prev_page_btn.config(state=tk.NORMAL if page_num > 0 else tk.DISABLED)
         self.next_page_btn.config(state=tk.NORMAL if page_num < total_pages - 1 else tk.DISABLED)
+
+    # --- Utility methods for the view ---
+    def show_info(self, title, message):
+        messagebox.showinfo(title, message, parent=self.root)
+
+    def show_warning(self, title, message):
+        messagebox.showwarning(title, message, parent=self.root)
+
+    def show_error(self, title, message):
+        messagebox.showerror(title, message, parent=self.root)
 

@@ -1,23 +1,6 @@
-# Core PDF Processing
-PyMuPDF==1.26.4
-
-# Computer Vision and Image Processing
+PyMuPDF==1.24.1
+numpy==2.3.3
 opencv-python==4.8.1.78
-scikit-image==0.25.2
 Pillow==11.3.0
-
-# OCR (Optical Character Recognition)
 pytesseract==0.3.10
-
-# Numerical Computing
-numpy==1.26.4
-
-# Development and Testing (Optional)
-pytest==7.4.3
-black==23.11.0
-flake8==6.1.0
-
-# System Monitoring (Optional)
-psutil==5.9.6
-
-# Note: tkinter is included with Python standard library
+scikit-image==0.22.0

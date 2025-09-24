@@ -18,6 +18,8 @@ class ValidationController:
         self.mode = "파일"  # 기본 모드는 '파일'
         self.selected_template = None
         self.target_path = None
+        self.target_filename = None # 파일 이름 저장
+        self.last_results = [] # 마지막 검증 결과 저장
 
         # '파일' 모드에서 사용될 PDF 뷰어 관련 상태 변수
         self.original_doc = None
@@ -58,6 +60,7 @@ class ValidationController:
         self.target_path = None
         self.view.update_path("")
         self._update_ui_state()
+        self.view.update_save_button_state(False) # 모드 변경 시 저장 버튼 비활성화
 
     def browse_target(self):
         """검증할 파일 또는 폴더를 선택하는 대화상자를 엽니다."""
@@ -70,6 +73,7 @@ class ValidationController:
         if path:
             self.target_path = path
             self.view.update_path(path)
+            self.view.update_save_button_state(False) # 대상 변경 시 저장 버튼 비활성화
         self._update_ui_state()
 
     def _update_ui_state(self):
@@ -91,26 +95,56 @@ class ValidationController:
         """단일 파일 검증을 수행합니다."""
         try:
             # 1. Service에 문서 검증을 요청하고 결과를 받습니다.
-            results = self.validation_service.validate_document(
+            self.last_results = self.validation_service.validate_document(
                 self.selected_template,
                 self.target_path,
                 progress_callback=self._progress_callback
             )
+            self.target_filename = os.path.basename(self.target_path)
             self.view.log("="*50 + "\n상세 검증 결과:")
-            self._log_results(results)
+            self._log_results(self.last_results)
 
             # 2. Service를 통해 결과 PDF(주석 추가)를 메모리에 생성합니다.
-            annotated_pdf_bytes = self.validation_service.create_annotated_pdf(self.target_path, results)
+            annotated_pdf_bytes = self.validation_service.create_annotated_pdf(self.target_path, self.last_results)
 
             # 3. Service를 통해 뷰어에 표시할 문서들을 로드합니다.
+            if self.original_doc: self.original_doc.close()
+            if self.annotated_doc: self.annotated_doc.close()
             self.original_doc, self.annotated_doc = self.validation_service.load_docs_for_viewer(
                 self.selected_template['original_pdf_path'], annotated_pdf_bytes
             )
             self.current_page_num = 0
             self.render_docs() # 뷰어 렌더링 시작
+            self.view.update_save_button_state(True) # 결과 저장 버튼 활성화
 
         except Exception as e:
             self.view.log(f"🔥 검증 중 심각한 오류 발생: {e}")
+            self.view.update_save_button_state(False) # 오류 시 저장 버튼 비활성화
+
+    def save_result_pdf(self):
+        """현재 검증 결과를 하이라이트된 PDF 파일로 저장합니다."""
+        if not self.annotated_doc or not self.last_results:
+            self.view.show_warning("저장 오류", "먼저 검증을 실행해야 합니다.")
+            return
+
+        try:
+            # 1. 전체 문서의 통과/실패 여부 결정
+            is_pass = all(r['status'] == 'OK' for r in self.last_results)
+            status_folder = "pass" if is_pass else "fail"
+
+            # 2. 저장 경로 구성
+            template_name = self.view.template_var.get()
+            output_path = os.path.join("output", template_name, status_folder)
+            os.makedirs(output_path, exist_ok=True)
+            
+            output_filepath = os.path.join(output_path, self.target_filename)
+
+            # 3. 파일 저장
+            self.annotated_doc.save(output_filepath)
+            self.view.show_info("저장 완료", f"결과가 다음 파일로 저장되었습니다:\n{os.path.abspath(output_filepath)}")
+
+        except Exception as e:
+            self.view.show_error("저장 실패", f"결과를 저장하는 중 오류가 발생했습니다:\n{e}")
 
     def _run_folder_validation(self):
         """폴더 내 모든 PDF 파일에 대한 일괄 검증을 수행합니다."""
@@ -119,11 +153,16 @@ class ValidationController:
             self.view.log("폴더에 검증할 PDF 파일이 없습니다.")
             return
 
-        output_dir = os.path.join("output", self.view.template_var.get())
-        os.makedirs(output_dir, exist_ok=True)
-        self.view.log(f"결과는 '{os.path.abspath(output_dir)}' 폴더에 저장됩니다.")
+        template_name = self.view.template_var.get()
+        base_output_dir = os.path.join("output", template_name)
+        pass_dir = os.path.join(base_output_dir, "pass")
+        fail_dir = os.path.join(base_output_dir, "fail")
+        os.makedirs(pass_dir, exist_ok=True)
+        os.makedirs(fail_dir, exist_ok=True)
+        
+        self.view.log(f"결과는 '{os.path.abspath(base_output_dir)}' 폴더에 저장됩니다.")
 
-        success, fail = 0, 0
+        success_count, fail_count = 0, 0
         total = len(pdf_files)
 
         for i, filename in enumerate(pdf_files):
@@ -132,26 +171,32 @@ class ValidationController:
             self.view.log(f"[{i+1}/{total}] '{filename}' 검증 중...")
 
             try:
-                # 각 파일에 대해 검증 수행
                 results = self.validation_service.validate_document(self.selected_template, filepath)
-                deficient_count = sum(1 for r in results if r['status'] != 'OK')
+                is_pass = all(r['status'] == 'OK' for r in results)
 
-                if deficient_count > 0:
-                    fail += 1
-                    self.view.log(f"  -> ❌ 미흡 ({deficient_count}개 항목).")
-                    # 미흡한 경우에만 결과 PDF를 파일로 저장
-                    annotated_pdf_bytes = self.validation_service.create_annotated_pdf(filepath, results)
-                    out_name = f"review_{os.path.splitext(filename)[0]}_{datetime.datetime.now().strftime('%H%M%S')}.pdf"
-                    with open(os.path.join(output_dir, out_name), "wb") as f:
-                        f.write(annotated_pdf_bytes)
-                else:
-                    success += 1
+                # 결과 PDF 생성
+                annotated_pdf_bytes = self.validation_service.create_annotated_pdf(filepath, results)
+                
+                if is_pass:
+                    success_count += 1
                     self.view.log("  -> ✅ 통과.")
+                    output_path = os.path.join(pass_dir, filename)
+                else:
+                    fail_count += 1
+                    deficient_count = sum(1 for r in results if r['status'] != 'OK')
+                    self.view.log(f"  -> ❌ 미흡 ({deficient_count}개 항목).")
+                    output_path = os.path.join(fail_dir, filename)
+
+                # 파일로 저장
+                with open(output_path, "wb") as f:
+                    f.write(annotated_pdf_bytes)
+                self.view.log(f"  -> 저장 완료: {os.path.abspath(output_path)}")
+
             except Exception as e:
-                fail += 1
+                fail_count += 1
                 self.view.log(f"  -> 🔥 오류 발생: {e}")
 
-        self.view.log("="*50 + f"\n일괄 검증 완료! (성공: {success}, 실패/오류: {fail})")
+        self.view.log("="*50 + f"\n일괄 검증 완료! (성공: {success_count}, 실패/오류: {fail_count})")
 
     def _progress_callback(self, message, current, total):
         """Service에서 진행 상황을 View에 전달하기 위한 콜백 함수입니다."""
