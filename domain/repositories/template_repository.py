@@ -1,5 +1,7 @@
 # 파일 경로: domain/repositories/template_repository.py
 from abc import ABC, abstractmethod
+from typing import Optional, List
+from domain.entities.template import Template
 
 # Domain Layer (Repository Interface)
 # 역할: 데이터 저장소에 대한 '규칙' 또는 '명세'를 정의합니다.
@@ -8,17 +10,21 @@ from abc import ABC, abstractmethod
 
 class TemplateRepository(ABC):
     @abstractmethod
-    def save(self, name: str, pdf_path: str, rois: dict):
+    def save(self, template: Template):
+        """템플릿을 저장하거나 업데이트합니다."""
         pass
 
     @abstractmethod
-    def load(self, name: str) -> dict:
+    def load(self, name: str) -> Optional[Template]:
+        """이름으로 템플릿을 불러옵니다."""
         pass
 
     @abstractmethod
-    def get_all_names(self) -> list:
+    def get_all_names(self) -> List[str]:
+        """모든 템플릿의 이름을 리스트로 반환합니다."""
         pass
 
     @abstractmethod
     def delete(self, name: str):
+        """이름으로 템플릿을 삭제합니다."""
         pass

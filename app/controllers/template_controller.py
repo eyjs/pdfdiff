@@ -116,11 +116,26 @@ class TemplateController:
             self.current_page_num += 1
             self._render_current_page()
 
-    def add_roi(self, x1, y1, x2, y2):
+    def prepare_add_roi(self, x1, y1, x2, y2):
+        """ROI 추가를 준비하고, 사용자로부터 상세 정보를 입력받아 ROI를 최종 생성합니다."""
         if not self.pdf_doc:
             return
 
-        roi_info = self.view.get_roi_creation_info()
+        # 1. ROI의 PDF 좌표 및 검증 엔진 기준 예상 픽셀 면적 계산
+        mat = self._get_display_matrix()
+        pdf_coords = self._screen_to_pdf_coords(x1, y1, x2, y2, mat)
+        
+        pdf_w = pdf_coords[2] - pdf_coords[0]
+        pdf_h = pdf_coords[3] - pdf_coords[1]
+        
+        validation_scale = 3.0 # 검증 시 사용되는 렌더링 스케일
+        roi_pixel_area = (pdf_w * validation_scale) * (pdf_h * validation_scale)
+        
+        # 2. 면적의 3%를 Contour 임계치로 제안 (최소 50)
+        suggested_threshold = max(50, int(roi_pixel_area * 0.03))
+
+        # 3. 사용자에게 ROI 정보 입력을 요청 (추천 임계치 전달)
+        roi_info = self.view.get_roi_creation_info(suggested_threshold)
         name = roi_info.get('name')
 
         if not name:
@@ -129,11 +144,8 @@ class TemplateController:
             self.view.show_error("Error", "ROI name must be unique.")
             return
 
-        mat = self._get_display_matrix()
-        pdf_coords = self._screen_to_pdf_coords(x1, y1, x2, y2, mat)
-
+        # 4. 앵커 탐색 등 최종 ROI 데이터 생성 (Service 위임)
         try:
-            # 앵커 탐색과 같은 복잡한 로직은 Service에 위임
             new_roi_data = self.service.create_roi_with_anchor(
                 pdf_doc=self.pdf_doc,
                 page_num=self.current_page_num,

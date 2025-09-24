@@ -2,6 +2,8 @@ from tkinter import filedialog
 import os
 import datetime
 
+import fitz
+
 class ValidationController:
     """
     ValidationWindow(View)와 ValidationService(Domain)를 연결하는 컨트롤러.
@@ -163,6 +165,24 @@ class ValidationController:
             self.view.log(f"  {icon} [{result['field_name']}]: {result['message']}")
 
     # --- PDF Viewer Control Methods ---
+    def _get_display_matrix(self, canvas, doc, page_num):
+        """현재 캔버스 크기에 맞는 PyMuPDF 변환 매트릭스를 계산합니다."""
+        if not doc or canvas.winfo_width() < 10:
+            return fitz.Matrix(1, 1)
+        
+        page = doc[page_num]
+        zoom = min(
+            canvas.winfo_width() / page.rect.width,
+            canvas.winfo_height() / page.rect.height
+        ) * 0.95 # 약간의 여백을 줌
+        return fitz.Matrix(zoom, zoom)
+
+    def _pdf_to_screen_coords(self, pdf_coords, mat):
+        """PDF 좌표를 화면(스크린) 좌표로 변환합니다."""
+        p1 = fitz.Point(pdf_coords[0], pdf_coords[1]) * mat
+        p2 = fitz.Point(pdf_coords[2], pdf_coords[3]) * mat
+        return p1.x, p1.y, p2.x, p2.y
+
     def render_docs(self):
         """뷰어에 현재 페이지의 원본/결과 이미지를 렌더링합니다."""
         if not self.original_doc or not self.annotated_doc:
@@ -178,8 +198,16 @@ class ValidationController:
         original_img = self.validation_service.render_page_to_image(self.original_doc, self.current_page_num, (w,h))
         annotated_img = self.validation_service.render_page_to_image(self.annotated_doc, self.current_page_num, (w,h))
 
+        # 현재 페이지의 ROI들을 가져와 화면 좌표로 변환
+        mat = self._get_display_matrix(self.view.left_canvas, self.original_doc, self.current_page_num)
+        rois_on_page = {
+            name: {**roi, 'screen_coords': self._pdf_to_screen_coords(roi['coords'], mat)}
+            for name, roi in self.selected_template['rois'].items()
+            if roi['page'] == self.current_page_num
+        }
+
         # 렌더링된 이미지를 View에 전달하여 화면 업데이트
-        self.view.update_viewer(original_img, annotated_img, self.current_page_num, len(self.original_doc))
+        self.view.update_viewer(original_img, annotated_img, rois_on_page, self.current_page_num, len(self.original_doc))
 
     def prev_page(self):
         """'이전 페이지' 버튼 클릭 시 호출됩니다."""

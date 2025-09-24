@@ -30,7 +30,6 @@ class ValidationWindow:
         self.right_photo = None
 
         self._setup_ui()
-        self.controller.load_templates() # View가 준비되면 컨트롤러에게 템플릿 로드를 요청
 
     def _setup_ui(self):
         main_frame = ttk.Frame(self.root, padding="10")
@@ -151,12 +150,26 @@ class ValidationWindow:
         self.progress_bar['maximum'] = maximum
         self.progress_bar['value'] = value
 
-    def update_viewer(self, original_img, annotated_img, page_num, total_pages):
+    def _draw_rois(self, rois_on_page):
+        """원본 템플릿 캔버스에 ROI 경계 상자를 그립니다."""
+        for name, data in rois_on_page.items():
+            screen_coords = data.get('screen_coords')
+            if not screen_coords:
+                continue
+
+            x0, y0, x1, y1 = screen_coords
+            color = 'blue' # 검증 결과에 따라 색상을 다르게 할 수 있음
+
+            self.left_canvas.create_rectangle(x0, y0, x1, y1, outline=color, width=2, tags=name)
+            self.left_canvas.create_text(x0, y0 - 5, text=name, anchor=tk.SW, fill=color, tags=name)
+
+    def update_viewer(self, original_img, annotated_img, rois_on_page, page_num, total_pages):
         """원본/결과 PDF 이미지를 뷰어 캔버스에 업데이트합니다."""
         if original_img:
             self.left_photo = ImageTk.PhotoImage(original_img)
             self.left_canvas.delete("all")
             self.left_canvas.create_image(0, 0, anchor=tk.NW, image=self.left_photo)
+            self._draw_rois(rois_on_page) # 원본 이미지 위에 ROI를 그립니다.
 
         if annotated_img:
             self.right_photo = ImageTk.PhotoImage(annotated_img)

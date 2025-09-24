@@ -11,6 +11,7 @@ class ValidationMethod(Enum):
     """검증 방식"""
     OCR = "ocr"
     CONTOUR = "contour"
+    SSIM = "ssim"
 
 
 @dataclass

@@ -81,6 +81,7 @@ class Template:
     def to_dict(self) -> dict:
         """딕셔너리로 변환 (저장용)"""
         return {
+            "name": self.name,
             "original_pdf_path": self.original_pdf_path,
             "rois": {name: roi.to_dict() for name, roi in self.rois.items()},
             "description": self.description,

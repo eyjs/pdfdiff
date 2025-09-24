@@ -89,7 +89,7 @@ class TemplateEditorWindow:
             return
 
         # UI는 좌표만 전달, 처리는 Controller가 담당
-        self.controller.add_roi(x1, y1, x2, y2)
+        self.controller.prepare_add_roi(x1, y1, x2, y2)
 
     # --- UI Update Methods (Called by Controller) ---
     def update_page_display(self, page_image, page_num, total_pages, rois_on_page):
@@ -132,7 +132,7 @@ class TemplateEditorWindow:
                     fill="yellow", dash=(2, 2), tags=name
                 )
 
-    def get_roi_creation_info(self):
+    def get_roi_creation_info(self, suggested_contour_threshold=100):
         """ROI 생성에 필요한 정보를 담은 대화상자를 띄웁니다."""
         dialog = tk.Toplevel(self.root)
         dialog.title("ROI Info")
@@ -145,21 +145,40 @@ class TemplateEditorWindow:
         method_var = tk.StringVar(value="ocr")
         threshold_var = tk.IntVar(value=3)
 
-        def update_threshold(*_):
-            threshold_var.set(3 if method_var.get() == "ocr" else 100)
-        method_var.trace('w', update_threshold)
-
+        # --- UI Elements ---
         ttk.Label(dialog, text="Name:").pack(padx=10, pady=5)
         name_entry = ttk.Entry(dialog, textvariable=name_var)
         name_entry.pack(padx=10)
         name_entry.focus_set()
 
         ttk.Label(dialog, text="검증 타입:").pack(padx=10, pady=5)
-        ttk.Radiobutton(dialog, text="OCR", variable=method_var, value="ocr").pack(anchor=tk.W, padx=20)
-        ttk.Radiobutton(dialog, text="Contour", variable=method_var, value="contour").pack(anchor=tk.W, padx=20)
+        method_frame = ttk.Frame(dialog)
+        ttk.Radiobutton(method_frame, text="OCR", variable=method_var, value="ocr").pack(anchor=tk.W)
+        ttk.Radiobutton(method_frame, text="Contour", variable=method_var, value="contour").pack(anchor=tk.W)
+        ttk.Radiobutton(method_frame, text="SSIM", variable=method_var, value="ssim").pack(anchor=tk.W)
+        method_frame.pack(padx=20, anchor=tk.W)
 
         ttk.Label(dialog, text="Threshold:").pack(padx=10, pady=5)
         ttk.Entry(dialog, textvariable=threshold_var, width=10).pack(padx=10)
+        
+        suggestion_label = ttk.Label(dialog, text="", foreground="grey")
+        suggestion_label.pack(padx=10, pady=(0, 5))
+
+        # --- Logic ---
+        def update_threshold_and_suggestion(*_):
+            method = method_var.get()
+            if method == "ocr":
+                threshold_var.set(3)
+                suggestion_label.config(text="(글자 수 최소값)")
+            elif method == "contour":
+                threshold_var.set(suggested_contour_threshold)
+                suggestion_label.config(text=f"(추천 값: {suggested_contour_threshold}) - 변경된 픽셀 면적")
+            else: # SSIM
+                threshold_var.set(10)
+                suggestion_label.config(text="(100 - 유사도 % 최소값)")
+        
+        method_var.trace('w', update_threshold_and_suggestion)
+        update_threshold_and_suggestion() # 초기값 설정
 
         def on_save():
             result['name'] = name_var.get().strip()
