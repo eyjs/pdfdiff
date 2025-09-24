@@ -6,6 +6,7 @@ import os
 import json
 import hashlib
 import logging
+import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union, Tuple
@@ -14,6 +15,16 @@ import time
 from shared.constants import *
 from shared.types import *
 from shared.exceptions import *
+
+def get_base_path() -> Path:
+    """ PyInstaller로 빌드되었는지 여부에 따라 애플리케이션의 기본 경로를 반환합니다. """
+    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+        # PyInstaller 번들로 실행된 경우, 실행 파일이 있는 디렉토리
+        return Path(os.path.dirname(sys.executable))
+    else:
+        # 일반 .py 스크립트로 실행된 경우, 이 파일(utils.py)의 상위 폴더(shared)의 상위 폴더(프로젝트 루트)
+        return Path(__file__).resolve().parent.parent
+
 
 
 class FileUtils:

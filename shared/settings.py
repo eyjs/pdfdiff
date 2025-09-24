@@ -80,8 +80,8 @@ class Settings:
     """애플리케이션 전역 설정 관리자"""
 
     def __init__(self, config_file: str = "settings.json"):
-        self.base_dir = self._get_application_path()
-        self.config_file = Path(self.base_dir) / config_file
+        self.base_dir = get_base_path() # 공통 함수 사용
+        self.config_file = self.base_dir / config_file
 
         # 기본 설정 인스턴스
         self.tesseract = TesseractSettings()
@@ -89,8 +89,9 @@ class Settings:
         self.validation = ValidationSettings()
         self.storage = StorageSettings()
 
-        # 저장소 경로 동적 설정
-        self.storage.templates_file = str(Path(self.base_dir) / DEFAULT_TEMPLATE_FILE)
+        # 저장소 경로 동적 설정 (PyInstaller 환경 고려)
+        # build.bat에서 `templates` 폴더를 통째로 추가하므로, 해당 경로를 사용
+        self.storage.templates_file = str(self.base_dir / "templates" / DEFAULT_TEMPLATE_FILE)
 
         # 추가 설정
         self.debug_enabled = False
@@ -150,29 +151,10 @@ class Settings:
         if self.tesseract.is_configured():
             return
 
-        tesseract_dir = Path(self.base_dir) / self.storage.resources_directory / "vendor" / "tesseract"
-
-        exe_path = tesseract_dir / TESSERACT_EXECUTABLE
-        tessdata_path = tesseract_dir / TESSDATA_SUBDIR
-
-        if exe_path.exists():
-            self.tesseract.executable_path = str(exe_path.absolute())
-
-        if tessdata_path.exists() and tessdata_path.is_dir():
-            self.tesseract.tessdata_path = str(tessdata_path.absolute())
-
-        if self.tesseract.is_configured():
-            self.save()
-
-    def _get_application_path(self) -> str:
-        """
-        애플리케이션의 루트 경로를 반환합니다.
-        """
-        if getattr(sys, 'frozen', False):
-            return os.path.dirname(sys.executable)
-        else:
-            # 수정: settings.py의 새 위치(config/)에 맞게 경로 계산 수정
-            return os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+        # 이제 Tesseract 경로는 TesseractOcrService에서 중앙 관리하므로
+        # 이 메소드는 settings.json에 경로가 수동으로 지정된 경우에만 사용되거나, 비워둘 수 있습니다.
+        # 지금은 TesseractOcrService에 위임하므로 이 부분을 비워둡니다.
+        pass
 
 # 전역 설정 인스턴스 생성
 settings = Settings()

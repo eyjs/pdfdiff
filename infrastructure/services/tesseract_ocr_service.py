@@ -1,11 +1,13 @@
 import pytesseract
 import re
 import os
+import sys
 from pathlib import Path
 import numpy as np
 import logging
 
 from domain.services.ocr_service import OcrService
+from shared.utils import get_base_path
 
 class TesseractOcrService(OcrService):
     """Tesseract를 사용한 OCR 서비스 구현체"""
@@ -15,17 +17,16 @@ class TesseractOcrService(OcrService):
         Tesseract 경로를 설정하고 초기화합니다.
         """
         try:
-            # 현재 파일(infrastructure/services/tesseract_ocr_service.py)에서 루트 디렉토리까지의 상대 경로 계산
-            current_dir = Path(__file__).resolve().parent.parent.parent
-            tesseract_exe = current_dir / "resources" / "vendor" / "tesseract" / "tesseract.exe"
-            tessdata_dir = current_dir / "resources" / "vendor" / "tesseract" / "tessdata"
+            base_path = get_base_path()
+            tesseract_exe = base_path / "resources" / "vendor" / "tesseract" / "tesseract.exe"
+            tessdata_dir = base_path / "resources" / "vendor" / "tesseract" / "tessdata"
 
             if tesseract_exe.exists():
                 pytesseract.pytesseract.tesseract_cmd = str(tesseract_exe)
                 os.environ['TESSDATA_PREFIX'] = str(tessdata_dir)
                 logging.info(f"Tesseract 경로 설정 완료 (TesseractOcrService): {tesseract_exe}")
             else:
-                logging.error(f"Tesseract 실행 파일을 찾을 수 없습니다 (TesseractOcrService): {tesseract_exe}")
+                logging.warning(f"지정된 경로에 Tesseract가 없습니다: {tesseract_exe}. 시스템 PATH에서 찾기를 시도합니다.")
         except Exception as e:
             logging.error(f"Tesseract 경로 설정 중 오류 발생 (TesseractOcrService): {e}")
 
