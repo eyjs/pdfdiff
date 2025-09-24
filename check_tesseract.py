@@ -12,22 +12,22 @@ from pathlib import Path
 def check_tesseract_installation():
     """Tesseract 설치 상태 확인"""
     
-    print("🔍 Tesseract OCR 설치 상태 검증")
+    print("Tesseract OCR 설치 상태 검증")
     print("=" * 50)
     
     # 1. 기본 경로 확인
     current_dir = Path(__file__).parent
-    tesseract_dir = current_dir / "vendor" / "tesseract"
+    tesseract_dir = current_dir / "resources" / "vendor" / "tesseract"
     tessdata_dir = tesseract_dir / "tessdata"
     tesseract_exe = tesseract_dir / "tesseract.exe"
     
-    print(f"📁 프로젝트 경로: {current_dir}")
-    print(f"📁 Tesseract 경로: {tesseract_dir}")
-    print(f"📁 언어팩 경로: {tessdata_dir}")
+    print(f"프로젝트 경로: {current_dir}")
+    print(f"Tesseract 경로: {tesseract_dir}")
+    print(f"언어팩 경로: {tessdata_dir}")
     print()
     
     # 2. 필수 파일 존재 확인
-    print("📋 필수 파일 확인:")
+    print("필수 파일 확인:")
     
     files_to_check = [
         (tesseract_exe, "Tesseract 실행 파일"),
@@ -40,9 +40,9 @@ def check_tesseract_installation():
     for file_path, description in files_to_check:
         if file_path.exists():
             size = file_path.stat().st_size
-            print(f"  ✅ {description}: {file_path.name} ({size:,} bytes)")
+            print(f"  [OK] {description}: {file_path.name} ({size:,} bytes)")
         else:
-            print(f"  ❌ {description}: {file_path.name} (없음)")
+            print(f"  [FAIL] {description}: {file_path.name} (없음)")
             missing_files.append((file_path, description))
     
     # 선택적 파일 확인
@@ -50,19 +50,19 @@ def check_tesseract_installation():
         (tessdata_dir / "osd.traineddata", "방향 감지 언어팩"),
     ]
     
-    print("\n📋 선택적 파일 확인:")
+    print("\n선택적 파일 확인:")
     for file_path, description in optional_files:
         if file_path.exists():
             size = file_path.stat().st_size
-            print(f"  ✅ {description}: {file_path.name} ({size:,} bytes)")
+            print(f"  [OK] {description}: {file_path.name} ({size:,} bytes)")
         else:
-            print(f"  ⚪ {description}: {file_path.name} (선택사항)")
+            print(f"  [INFO] {description}: {file_path.name} (선택사항)")
     
     print()
     
     # 3. 누락된 파일이 있는 경우
     if missing_files:
-        print("❌ 누락된 필수 파일들이 있습니다!")
+        print("[FAIL] 누락된 필수 파일들이 있습니다!")
         print("\n해결 방법:")
         print("1. install_korean_ocr.bat 실행")
         print("2. 또는 수동으로 다음 파일들을 다운로드:")
@@ -81,7 +81,7 @@ def check_tesseract_installation():
         return False
     
     # 4. 실제 OCR 테스트
-    print("🧪 OCR 기능 테스트 시작...")
+    print("OCR 기능 테스트 시작...")
     
     try:
         # pytesseract 설정
@@ -93,29 +93,29 @@ def check_tesseract_installation():
         pytesseract.pytesseract.tesseract_cmd = str(tesseract_exe)
         os.environ['TESSDATA_PREFIX'] = str(tessdata_dir)
         
-        print("  ✅ pytesseract 모듈 로드 성공")
+        print("  [OK] pytesseract 모듈 로드 성공")
         
         # 사용 가능한 언어 확인
         try:
             languages = pytesseract.get_languages(config='')
-            print(f"  ✅ 설치된 언어: {', '.join(sorted(languages))}")
+            print(f"  [OK] 설치된 언어: {', '.join(sorted(languages))}")
             
             required_langs = {'eng', 'kor'}
             available_langs = set(languages)
             
             if required_langs.issubset(available_langs):
-                print("  ✅ 한글+영어 언어팩 확인됨")
+                print("  [OK] 한글+영어 언어팩 확인됨")
             else:
                 missing_langs = required_langs - available_langs
-                print(f"  ❌ 누락된 언어: {', '.join(missing_langs)}")
+                print(f"  [FAIL] 누락된 언어: {', '.join(missing_langs)}")
                 return False
                 
         except Exception as e:
-            print(f"  ❌ 언어 목록 확인 실패: {e}")
+            print(f"  [FAIL] 언어 목록 확인 실패: {e}")
             return False
         
         # 간단한 텍스트 이미지 생성 및 OCR 테스트
-        print("\n  🔤 영어 OCR 테스트...")
+        print("\n  영어 OCR 테스트...")
         
         # 영어 테스트 이미지
         img_en = Image.new('RGB', (300, 100), 'white')
@@ -132,12 +132,12 @@ def check_tesseract_installation():
         print(f"    인식 결과: '{text_en}'")
         
         if "Hello" in text_en and "World" in text_en:
-            print("    ✅ 영어 OCR 정상 동작")
+            print("    [OK] 영어 OCR 정상 동작")
         else:
-            print("    ⚠️ 영어 OCR 결과가 예상과 다름")
+            print("    [WARN] 영어 OCR 결과가 예상과 다름")
         
         # 한글 테스트 (간단한 텍스트)
-        print("\n  🔤 한글 OCR 테스트...")
+        print("\n  한글 OCR 테스트...")
         
         img_kr = Image.new('RGB', (300, 100), 'white')
         draw_kr = ImageDraw.Draw(img_kr)
@@ -150,12 +150,12 @@ def check_tesseract_installation():
         print(f"    인식 결과: '{text_kr}'")
         
         if text_kr and len(text_kr) > 0:
-            print("    ✅ 한글 OCR 엔진 동작함")
+            print("    [OK] 한글 OCR 엔진 동작함")
         else:
-            print("    ⚠️ 한글 인식 결과가 없음 (폰트나 이미지 품질 문제일 수 있음)")
+            print("    [WARN] 한글 인식 결과가 없음 (폰트나 이미지 품질 문제일 수 있음)")
         
         # 복합 언어 테스트
-        print("\n  🔤 한영 복합 OCR 테스트...")
+        print("\n  한영 복합 OCR 테스트...")
         
         img_mixed = Image.new('RGB', (400, 100), 'white')
         draw_mixed = ImageDraw.Draw(img_mixed)
@@ -165,42 +165,42 @@ def check_tesseract_installation():
         print(f"    인식 결과: '{text_mixed}'")
         
         if text_mixed and len(text_mixed) > 0:
-            print("    ✅ 한영 복합 OCR 엔진 동작함")
+            print("    [OK] 한영 복합 OCR 엔진 동작함")
         
         print()
-        print("🎉 OCR 기능 검증 완료!")
+        print("OCR 기능 검증 완료!")
         print("PDF Diff 프로젝트에서 한글 OCR을 사용할 수 있습니다.")
         
         return True
         
     except ImportError as e:
-        print(f"  ❌ 필수 모듈 없음: {e}")
+        print(f"  [FAIL] 필수 모듈 없음: {e}")
         print("    pip install -r requirements.txt 실행 필요")
         return False
     except Exception as e:
-        print(f"  ❌ OCR 테스트 실패: {e}")
+        print(f"  [FAIL] OCR 테스트 실패: {e}")
         return False
 
 def main():
     """메인 함수"""
-    print("🔧 PDF Diff - Tesseract OCR 검증 도구")
+    print("PDF Diff - Tesseract OCR 검증 도구")
     print("Ver 1.0")
     print()
     
     try:
         if check_tesseract_installation():
             print("\n" + "="*60)
-            print("✅ 모든 검증이 완료되었습니다!")
+            print("[OK] 모든 검증이 완료되었습니다!")
             print("enhanced_launcher.py를 실행하여 프로젝트를 시작하세요.")
         else:
             print("\n" + "="*60)
-            print("❌ 일부 문제가 발견되었습니다.")
+            print("[FAIL] 일부 문제가 발견되었습니다.")
             print("위의 해결 방법을 따라 문제를 해결해주세요.")
             
     except KeyboardInterrupt:
         print("\n\n중단되었습니다.")
     except Exception as e:
-        print(f"\n❌ 예상치 못한 오류 발생: {e}")
+        print(f"\n[FAIL] 예상치 못한 오류 발생: {e}")
     
     print("\n프로그램을 종료하려면 Enter를 누르세요...")
     input()
