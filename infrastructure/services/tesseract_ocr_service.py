@@ -45,7 +45,9 @@ class TesseractOcrService(OcrService):
         inverted_image = np.invert(image)
 
         # Tesseract 설정 문자열을 구성합니다.
-        config_str = '--psm 7'
+        psm = config.get('psm', '7') # 페이지 세분화 모드
+        oem = config.get('oem', '3') # OCR 엔진 모드
+        config_str = f'--psm {psm} --oem {oem}'
         if whitelist:
             config_str += f" -c tessedit_char_whitelist={whitelist}"
 

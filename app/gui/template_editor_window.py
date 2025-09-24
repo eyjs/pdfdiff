@@ -143,59 +143,88 @@ class TemplateEditorWindow:
 
         # --- 변수 설정 ---
         name_var = tk.StringVar()
-        method_var = tk.StringVar(value="ssim") # 기본값을 ssim으로 변경
+        method_var = tk.StringVar(value="ssim")
         threshold_var = tk.IntVar()
-        ocr_type_var = tk.StringVar(value="kor_eng") # OCR 세부 타입 변수
+        ocr_type_var = tk.StringVar(value="kor_eng")
+        psm_var = tk.StringVar(value="7: 이름, 항목 등 일반적인 한 줄 텍스트 (기본값)")
+        oem_var = tk.StringVar(value="3: 기본 (LSTM+레거시)") # OCR 엔진 모드 변수
 
         # --- UI 요소 생성 ---
+        main_dialog_frame = ttk.Frame(dialog, padding=10)
+        main_dialog_frame.pack(fill=tk.BOTH, expand=True)
+
         # 이름
-        ttk.Label(dialog, text="Name:").pack(padx=10, pady=5)
-        name_entry = ttk.Entry(dialog, textvariable=name_var)
-        name_entry.pack(padx=10)
+        ttk.Label(main_dialog_frame, text="Name:").pack(anchor=tk.W, padx=5, pady=2)
+        name_entry = ttk.Entry(main_dialog_frame, textvariable=name_var)
+        name_entry.pack(fill=tk.X, padx=5, pady=(0, 10))
         name_entry.focus_set()
 
-        # 검증 방식 (ssim, ocr, contour)
-        ttk.Label(dialog, text="검증 방식:").pack(padx=10, pady=5)
-        method_frame = ttk.Frame(dialog)
-        ttk.Radiobutton(method_frame, text="SSIM", variable=method_var, value="ssim").pack(anchor=tk.W)
-        ttk.Radiobutton(method_frame, text="OCR", variable=method_var, value="ocr").pack(anchor=tk.W)
-        ttk.Radiobutton(method_frame, text="Contour", variable=method_var, value="contour").pack(anchor=tk.W)
-        method_frame.pack(padx=20, anchor=tk.W)
+        # 검증 방식
+        ttk.Label(main_dialog_frame, text="검증 방식:").pack(anchor=tk.W, padx=5, pady=2)
+        method_frame = ttk.Frame(main_dialog_frame)
+        ttk.Radiobutton(method_frame, text="SSIM", variable=method_var, value="ssim").pack(side=tk.LEFT, padx=5)
+        ttk.Radiobutton(method_frame, text="OCR", variable=method_var, value="ocr").pack(side=tk.LEFT, padx=5)
+        ttk.Radiobutton(method_frame, text="Contour", variable=method_var, value="contour").pack(side=tk.LEFT, padx=5)
+        method_frame.pack(fill=tk.X, padx=5, pady=(0, 10))
 
-        # OCR 세부 옵션 (OCR 선택 시에만 보임)
-        ocr_options_frame = ttk.Frame(dialog)
-        ttk.Label(ocr_options_frame, text="OCR 타입:").pack(padx=10, pady=5)
+        # OCR 세부 옵션
+        ocr_options_frame = ttk.LabelFrame(main_dialog_frame, text="OCR Options", padding=10)
+        
+        # OCR 타입
+        ttk.Label(ocr_options_frame, text="OCR 타입:").pack(anchor=tk.W)
         ocr_type_frame = ttk.Frame(ocr_options_frame)
-        ttk.Radiobutton(ocr_type_frame, text="한글+영어", variable=ocr_type_var, value="kor_eng").pack(anchor=tk.W)
-        ttk.Radiobutton(ocr_type_frame, text="한글 전용", variable=ocr_type_var, value="kor").pack(anchor=tk.W)
-        ttk.Radiobutton(ocr_type_frame, text="영어 전용", variable=ocr_type_var, value="eng").pack(anchor=tk.W)
-        ttk.Radiobutton(ocr_type_frame, text="숫자+기호 전용", variable=ocr_type_var, value="digits").pack(anchor=tk.W)
-        ocr_type_frame.pack(padx=20, anchor=tk.W)
+        ttk.Radiobutton(ocr_type_frame, text="한글+영어", variable=ocr_type_var, value="kor_eng").pack(side=tk.LEFT, padx=5)
+        ttk.Radiobutton(ocr_type_frame, text="한글 전용", variable=ocr_type_var, value="kor").pack(side=tk.LEFT, padx=5)
+        ttk.Radiobutton(ocr_type_frame, text="숫자+기호", variable=ocr_type_var, value="digits").pack(side=tk.LEFT, padx=5)
+        ttk.Radiobutton(ocr_type_frame, text="영어 전용", variable=ocr_type_var, value="eng").pack(side=tk.LEFT, padx=5)
+        ocr_type_frame.pack(fill=tk.X, pady=(2, 10))
+
+        # PSM 모드
+        ttk.Label(ocr_options_frame, text="페이지 세분화 모드 (PSM):").pack(anchor=tk.W)
+        psm_frame = ttk.Frame(ocr_options_frame)
+        ttk.Combobox(psm_frame, textvariable=psm_var, values=[
+            "6: 주소, 설명 등 여러 줄로 된 단락",
+            "7: 이름, 항목 등 일반적인 한 줄 텍스트 (기본값)",
+            "8: '필요시' 와 같은 단어 하나만 있을 때",
+            "11: 영수증의 품목처럼, 세로로 흩어진 텍스트",
+            "13: 특수문자/기호가 많은 한 줄 텍스트"
+        ], state="readonly").pack(fill=tk.X)
+        psm_frame.pack(fill=tk.X, pady=(2, 10))
+
+        # OEM 모드
+        ttk.Label(ocr_options_frame, text="OCR 엔진 모드 (OEM):").pack(anchor=tk.W)
+        oem_frame = ttk.Frame(ocr_options_frame)
+        ttk.Combobox(oem_frame, textvariable=oem_var, values=[
+            "3: 기본 (LSTM+레거시)",
+            "1: LSTM 엔진 전용 (최신)",
+            "0: 레거시 엔진 전용"
+        ], state="readonly").pack(fill=tk.X)
+        oem_frame.pack(fill=tk.X, pady=(2, 5))
 
         # 임계값
-        ttk.Label(dialog, text="Threshold:").pack(padx=10, pady=5)
-        ttk.Entry(dialog, textvariable=threshold_var, width=10).pack(padx=10)
-        suggestion_label = ttk.Label(dialog, text="", foreground="grey")
-        suggestion_label.pack(padx=10, pady=(0, 5))
+        ttk.Label(main_dialog_frame, text="Threshold:").pack(anchor=tk.W, padx=5, pady=2)
+        ttk.Entry(main_dialog_frame, textvariable=threshold_var, width=10).pack(anchor=tk.W, padx=5)
+        suggestion_label = ttk.Label(main_dialog_frame, text="", foreground="grey")
+        suggestion_label.pack(anchor=tk.W, padx=5, pady=(0, 10))
 
         # --- UI 로직 ---
         def update_ui_based_on_method(*_):
             method = method_var.get()
             if method == "ocr":
-                ocr_options_frame.pack(padx=10, pady=5, anchor=tk.W)
-                threshold_var.set(2) # OCR 기본 임계값
+                ocr_options_frame.pack(fill=tk.X, padx=5, pady=5)
+                threshold_var.set(2)
                 suggestion_label.config(text="(인식되어야 할 최소 글자 수)")
             else:
                 ocr_options_frame.pack_forget()
                 if method == "ssim":
-                    threshold_var.set(15) # SSIM 기본 임계값
+                    threshold_var.set(15)
                     suggestion_label.config(text="(100 - 유사도 % 최소값)")
                 else: # Contour
                     threshold_var.set(suggested_contour_threshold)
                     suggestion_label.config(text=f"(추천 값: {suggested_contour_threshold}) - 변경된 픽셀 면적")
         
         method_var.trace('w', update_ui_based_on_method)
-        update_ui_based_on_method() # 초기 UI 설정
+        update_ui_based_on_method()
 
         def on_save():
             result['name'] = name_var.get().strip()
@@ -204,21 +233,23 @@ class TemplateEditorWindow:
             
             if result['method'] == 'ocr':
                 ocr_type = ocr_type_var.get()
+                psm_choice = psm_var.get().split(':')[0]
+                oem_choice = oem_var.get().split(':')[0]
+                result['ocr_config'] = {'psm': psm_choice, 'oem': oem_choice}
+
                 if ocr_type == 'digits':
-                    result['ocr_config'] = {
-                        'lang': 'eng',
-                        'whitelist': '0123456789,.'
-                    }
+                    result['ocr_config']['lang'] = 'eng'
+                    result['ocr_config']['whitelist'] = '0123456789,.'
                 elif ocr_type == 'kor':
-                    result['ocr_config'] = {'lang': 'kor'}
+                    result['ocr_config']['lang'] = 'kor'
                 elif ocr_type == 'eng':
-                    result['ocr_config'] = {'lang': 'eng'}
+                    result['ocr_config']['lang'] = 'eng'
                 else: # kor_eng
-                    result['ocr_config'] = {'lang': 'kor+eng'}
+                    result['ocr_config']['lang'] = 'kor+eng'
 
             dialog.destroy()
 
-        ttk.Button(dialog, text="Save", command=on_save).pack(pady=10)
+        ttk.Button(main_dialog_frame, text="Save", command=on_save).pack(pady=10)
 
         self.root.wait_window(dialog)
         return result
