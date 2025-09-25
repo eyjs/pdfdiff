@@ -1,4 +1,5 @@
 import json
+import os
 from typing import List, Optional
 from domain.entities.template import Template
 from domain.entities.roi import ROI
@@ -87,7 +88,10 @@ class JsonTemplateRepository(TemplateRepository):
     def _save_all(self):
         """메모리의 모든 템플릿 데이터를 JSON 파일에 저장합니다."""
         try:
-            # 이제 to_dict()에 name이 포함되므로 정상적으로 저장됩니다.
+            directory = os.path.dirname(self.file_path)
+            if not os.path.exists(directory):
+                os.makedirs(directory)
+
             data = [template.to_dict() for template in self._templates]
             with open(self.file_path, 'w', encoding='utf-8') as f:
                 json.dump(data, f, ensure_ascii=False, indent=4)

@@ -17,16 +17,28 @@ class TesseractOcrService(OcrService):
         Tesseract 경로를 설정하고 초기화합니다.
         """
         try:
-            base_path = get_base_path()
+            if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+                # PyInstaller 번들로 실행된 경우, _MEIPASS 임시 디렉토리를 기본 경로로 사용
+                base_path = Path(sys._MEIPASS)
+            else:
+                # 일반 .py 스크립트로 실행된 경우
+                base_path = get_base_path()
+
             tesseract_exe = base_path / "resources" / "vendor" / "tesseract" / "tesseract.exe"
+            # TESSDATA_PREFIX는 'tessdata' 폴더를 직접 가리키도록 수정합니다.
             tessdata_dir = base_path / "resources" / "vendor" / "tesseract" / "tessdata"
 
             if tesseract_exe.exists():
                 pytesseract.pytesseract.tesseract_cmd = str(tesseract_exe)
                 os.environ['TESSDATA_PREFIX'] = str(tessdata_dir)
                 logging.info(f"Tesseract 경로 설정 완료 (TesseractOcrService): {tesseract_exe}")
+                logging.info(f"TESSDATA_PREFIX 설정: {tessdata_dir}")
             else:
-                logging.warning(f"지정된 경로에 Tesseract가 없습니다: {tesseract_exe}. 시스템 PATH에서 찾기를 시도합니다.")
+                # 번들 환경에서 tesseract.exe를 찾지 못하면 심각한 오류입니다.
+                if getattr(sys, 'frozen', False):
+                    logging.error(f"번들된 Tesseract를 찾을 수 없습니다: {tesseract_exe}")
+                else:
+                    logging.warning(f"지정된 경로에 Tesseract가 없습니다: {tesseract_exe}. 시스템 PATH에서 찾기를 시도합니다.")
         except Exception as e:
             logging.error(f"Tesseract 경로 설정 중 오류 발생 (TesseractOcrService): {e}")
 

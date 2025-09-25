@@ -46,7 +46,6 @@ venv\Scripts\python.exe -m PyInstaller ^
     --workpath "temp_build" ^
     --clean ^
     --add-data "resources;resources" ^
-    --add-data "templates.json;." ^
     --add-data "settings.json;." ^
     main.py
 

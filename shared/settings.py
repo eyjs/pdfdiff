@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 # shared 폴더에 있는 상수와 유틸리티를 가져옵니다.
 try:
     from shared.constants import *
-    from shared.utils import ConfigUtils
+    from shared.utils import ConfigUtils, get_base_path
     from shared.exceptions import *
 except ImportError:
     # 모듈 경로 문제 해결
@@ -20,7 +20,7 @@ except ImportError:
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
     from shared.constants import *
-    from shared.utils import ConfigUtils
+    from shared.utils import ConfigUtils, get_base_path
     from shared.exceptions import *
 
 
@@ -90,8 +90,12 @@ class Settings:
         self.storage = StorageSettings()
 
         # 저장소 경로 동적 설정 (PyInstaller 환경 고려)
-        # build.bat에서 `templates` 폴더를 통째로 추가하므로, 해당 경로를 사용
-        self.storage.templates_file = str(self.base_dir / "templates" / DEFAULT_TEMPLATE_FILE)
+        if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+            # PyInstaller로 번들된 경우, _MEIPASS 경로에 있는 templates.json을 사용
+            self.storage.templates_file = os.path.join(sys._MEIPASS, 'templates.json')
+        else:
+            # 일반 실행 환경에서는 프로젝트 루트의 templates.json을 사용
+            self.storage.templates_file = str(self.base_dir / 'templates.json')
 
         # 추가 설정
         self.debug_enabled = False
