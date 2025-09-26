@@ -8,9 +8,14 @@ Pillow==11.3.0
 
 # OCR (Optical Character Recognition)
 pytesseract==0.3.10
+easyocr==1.7.1
 
 # Numerical Computing
 numpy==1.26.4
+
+# Deep Learning (for EasyOCR)
+torch==2.1.0
+torchvision==0.16.0
 
 # Development and Testing (Optional)
 pytest==7.4.3

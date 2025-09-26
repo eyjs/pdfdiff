@@ -76,6 +76,16 @@ class StorageSettings:
     backup_retention_days: int = BACKUP_RETENTION_DAYS
 
 
+@dataclass
+class OcrEngineSelectionSettings: # 새로운 dataclass 정의
+    default_engine: str = "comparative"
+    easyocr_gpu_enabled: bool = False
+
+@dataclass
+class EasyocrSettings:
+    """EasyOCR 설정"""
+    model_storage_directory: str = EASYOCR_MODEL_DIR
+
 class Settings:
     """애플리케이션 전역 설정 관리자"""
 
@@ -88,14 +98,12 @@ class Settings:
         self.ui = UISettings()
         self.validation = ValidationSettings()
         self.storage = StorageSettings()
+        self.ocr_engine_selection = OcrEngineSelectionSettings() # 추가
+        self.easyocr = EasyocrSettings() # 추가
+        self.easyocr.model_storage_directory = str(self.base_dir / EASYOCR_MODEL_DIR) # EasyOCR 모델 경로 절대 경로로 설정
 
-        # 저장소 경로 동적 설정 (PyInstaller 환경 고려)
-        if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
-            # PyInstaller로 번들된 경우, _MEIPASS 경로에 있는 templates.json을 사용
-            self.storage.templates_file = os.path.join(sys._MEIPASS, 'templates.json')
-        else:
-            # 일반 실행 환경에서는 프로젝트 루트의 templates.json을 사용
-            self.storage.templates_file = str(self.base_dir / 'templates.json')
+        # 저장소 경로 설정 (get_base_path가 환경에 맞는 루트를 반환)
+        self.storage.templates_file = str(self.base_dir / DEFAULT_TEMPLATE_FILE)
 
         # 추가 설정
         self.debug_enabled = False
@@ -120,7 +128,11 @@ class Settings:
             self._update_from_dict(self.tesseract, config.get("tesseract", {}))
             self._update_from_dict(self.ui, config.get("ui", {}))
             self._update_from_dict(self.validation, config.get("validation", {}))
-            self._update_from_dict(self.storage, config.get("storage", {}))
+            self._update_from_dict(self.ocr_engine_selection, config.get("ocr_engine_selection", {})) # 추가
+            self._update_from_dict(self.easyocr, config.get("easyocr", {})) # 추가
+            storage_config = config.get("storage", {})
+            storage_config.pop('templates_file', None)  # 코드에서 설정한 경로를 유지하기 위해 파일 값 무시
+            self._update_from_dict(self.storage, storage_config)
 
             self.debug_enabled = config.get("debug_enabled", False)
             self.log_level = config.get("log_level", "INFO")
@@ -138,6 +150,8 @@ class Settings:
                 "tesseract": self.tesseract.__dict__,
                 "ui": self.ui.__dict__,
                 "validation": self.validation.__dict__,
+                "ocr_engine_selection": self.ocr_engine_selection.__dict__, # 추가
+                "easyocr": self.easyocr.__dict__, # 추가
                 "storage": self.storage.__dict__,
             }
             ConfigUtils.save_config(config, str(self.config_file))

@@ -150,16 +150,13 @@ class ValidationVisionService:
 
     # --- 검증 헬퍼 메서드들 (구체화된 로직) ---
     def _validate_with_ocr(self, result, original_roi, filled_roi, threshold, roi_info):
-        # 이전의 안정적인 로직으로 복귀: 입력된 이미지를 직접 처리
+        # OCR은 컬러 이미지보다 회색조 이미지에서 더 잘 동작합니다.
         gray_filled = cv2.cvtColor(filled_roi, cv2.COLOR_BGR2GRAY)
 
-        # adaptiveThreshold는 조명 변화에 강건하며, 이전에 잘 동작했음
-        # THRESH_BINARY를 사용하여 흰색 글씨/검은 배경 이미지를 생성
-        binary_img = cv2.adaptiveThreshold(gray_filled, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
-
         # ROI의 개별 설정을 가져와 OCR 실행
+        # 전처리(이진화 등)는 각 OCR 서비스 구현체에 위임합니다.
         ocr_config = roi_info.get('ocr_config')
-        clean_text = self.ocr_service.recognize_text(binary_img, config=ocr_config)
+        clean_text = self.ocr_service.recognize_text(gray_filled, config=ocr_config)
 
         # --- DEBUG IMAGE SAVING (OCR 전용) ---
         try:
@@ -167,7 +164,8 @@ class ValidationVisionService:
             output_dir = "output/debug"
             os.makedirs(output_dir, exist_ok=True)
             field_name = result["field_name"]
-            cv2.imwrite(os.path.join(output_dir, f"{field_name}_ocr_final_input.png"), binary_img)
+            # OCR 서비스에 들어가는 회색조 이미지를 저장하여 디버깅에 사용
+            cv2.imwrite(os.path.join(output_dir, f"{field_name}_ocr_input_gray.png"), gray_filled)
         except Exception as e:
             logging.warning(f"Failed to save OCR debug images for {field_name}: {e}")
         # --- END DEBUG ---

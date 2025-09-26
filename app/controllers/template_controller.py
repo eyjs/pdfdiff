@@ -11,37 +11,34 @@ class TemplateController:
         self.view = view
         self.service = template_service
 
-        # UI/비즈니스 로직 상태를 관리하는 변수
+        # UI/비즈니스 로직 상태
         self.pdf_doc = None
         self.current_pdf_path = None
         self.current_page_num = 0
         self.current_template_rois = {}
 
+        # 확대/축소 및 패닝 상태
+        self.zoom = 1.0
+        self.pan_x = 0
+        self.pan_y = 0
+        self.is_panning = False
+        self.pan_start_x = 0
+        self.pan_start_y = 0
+
     def initialize_view(self):
-        """
-        View가 완전히 생성되고 준비된 후 MainController에 의해 호출됩니다.
-        UI와 관련된 초기화 로직을 이 곳에 배치합니다.
-        """
-        # Template Editor는 시작 시 특별히 로드할 데이터가 없으므로 비워둡니다.
-        # 향후 초기화 로직이 필요할 경우를 대비해 구조를 유지합니다.
         pass
 
     def _render_current_page(self):
-        """현재 페이지를 이미지로 변환하고 화면 업데이트를 View에 요청합니다."""
         if not self.pdf_doc:
             self.view.update_page_display(None, 0, 0, {})
             return
 
         page = self.pdf_doc[self.current_page_num]
-
-        # 1. 현재 캔버스 크기에 맞는 변환 매트릭스 계산
         mat = self._get_display_matrix()
 
-        # 2. PyMuPDF를 사용하여 페이지를 PIL 이미지로 렌더링
         pix = page.get_pixmap(matrix=mat, alpha=False)
         page_image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
 
-        # 3. 현재 페이지에 속한 ROI들의 PDF 좌표를 화면(스크린) 좌표로 변환
         rois_on_page = {}
         for name, roi_data in self.current_template_rois.items():
             if roi_data.get('page') == self.current_page_num:
@@ -56,25 +53,29 @@ class TemplateController:
                 rois_on_page[name] = {**roi_data, 'screen_coords': screen_coords, 'anchor_screen_coords': anchor_screen_coords}
 
         # 4. 최종적으로 가공된 데이터를 View에 전달하여 화면 업데이트 요청
+        total_width = page.rect.width * self.zoom
+        total_height = page.rect.height * self.zoom
+
         self.view.update_page_display(
             page_image,
             self.current_page_num,
             len(self.pdf_doc),
-            rois_on_page
+            rois_on_page,
+            self.pan_x, self.pan_y,
+            total_width, total_height
         )
 
     # --- 좌표 변환 유틸리티 메서드 ---
     def _get_display_matrix(self):
-        if not self.pdf_doc or self.view.canvas.winfo_width() < 10:
+        if not self.pdf_doc:
             return fitz.Matrix(1, 1)
-        page = self.pdf_doc[self.current_page_num]
-        zoom = min(
-            self.view.canvas.winfo_width() / page.rect.width,
-            self.view.canvas.winfo_height() / page.rect.height
-        )
-        return fitz.Matrix(zoom, zoom)
+
+        return fitz.Matrix(self.zoom, self.zoom)
 
     def _screen_to_pdf_coords(self, x1, y1, x2, y2, mat):
+        # 화면 좌표에 팬 값을 빼서 이미지 기준 좌표로 변환 후 역행렬 계산
+        x1, y1 = x1 - self.pan_x, y1 - self.pan_y
+        x2, y2 = x2 - self.pan_x, y2 - self.pan_y
         p1 = fitz.Point(min(x1, x2), min(y1, y2)) * ~mat
         p2 = fitz.Point(max(x1, x2), max(y1, y2)) * ~mat
         return [p1.x, p1.y, p2.x, p2.y]
@@ -82,7 +83,8 @@ class TemplateController:
     def _pdf_to_screen_coords(self, pdf_coords, mat):
         p1 = fitz.Point(pdf_coords[0], pdf_coords[1]) * mat
         p2 = fitz.Point(pdf_coords[2], pdf_coords[3]) * mat
-        return p1.x, p1.y, p2.x, p2.y
+        # 팬 값을 더해서 최종 화면 좌표 계산
+        return p1.x + self.pan_x, p1.y + self.pan_y, p2.x + self.pan_x, p2.y + self.pan_y
 
     # --- View로부터 전달받는 이벤트 핸들러 ---
     def on_window_resize(self):
@@ -102,9 +104,79 @@ class TemplateController:
             self.current_pdf_path = path
             self.current_page_num = 0
             self.current_template_rois = {}
+
+            # 초기 'fit-to-window' 줌 설정
+            page = self.pdf_doc[self.current_page_num]
+            self.zoom = min(
+                self.view.canvas.winfo_width() / page.rect.width,
+                self.view.canvas.winfo_height() / page.rect.height
+            )
+            self.pan_x, self.pan_y = 0, 0
+
             self._render_current_page()
         except Exception as e:
             self.view.show_error("Error", f"Failed to open PDF:\n{e}")
+
+    def handle_zoom(self, factor, x, y):
+        if not self.pdf_doc:
+            return
+
+        # 줌 중심이 될 PDF 좌표 계산
+        img_x, img_y = x - self.pan_x, y - self.pan_y
+        pdf_p = fitz.Point(img_x, img_y) * ~fitz.Matrix(self.zoom, self.zoom)
+
+        self.zoom *= factor
+        self.zoom = max(0.1, min(self.zoom, 5.0)) # 줌 범위 제한
+
+        # 새로운 줌 레벨에서 PDF 좌표의 새 이미지 좌표 계산
+        new_img_p = pdf_p * fitz.Matrix(self.zoom, self.zoom)
+
+        # 마우스 포인터가 같은 위치에 있도록 팬 값 조정
+        self.pan_x += img_x - new_img_p.x
+        self.pan_y += img_y - new_img_p.y
+
+        self._render_current_page()
+
+    def start_pan(self, event):
+        self.is_panning = True
+        self.pan_start_x = event.x
+        self.pan_start_y = event.y
+
+    def do_pan(self, event):
+        if self.is_panning:
+            dx = event.x - self.pan_start_x
+            dy = event.y - self.pan_start_y
+            self.pan_x += dx
+            self.pan_y += dy
+            self.pan_start_x = event.x
+            self.pan_start_y = event.y
+            self._render_current_page()
+
+    def end_pan(self, event):
+        self.is_panning = False
+
+    def set_pan(self, x_offset, y_offset):
+        """스크롤바로부터 직접 팬 위치를 설정합니다."""
+        print(f"DEBUG: set_pan called with x_offset={x_offset}, y_offset={y_offset}") # 추가
+        if not self.original_doc: return
+
+        page = self.original_doc[self.current_page_num]
+        total_width = page.rect.width * self.zoom
+        total_height = page.rect.height * self.zoom
+        canvas_width = self.view.left_canvas.winfo_width()
+        canvas_height = self.view.left_canvas.winfo_height()
+
+        print(f"DEBUG: set_pan - Before x_offset check. x_offset is None: {x_offset is None}") # 추가
+        if x_offset is not None:
+            self.pan_x = -x_offset * (total_width - canvas_width)
+            print(f"DEBUG: set_pan - pan_x updated to: {self.pan_x}") # 추가
+        
+        print(f"DEBUG: set_pan - Before y_offset check. y_offset is None: {y_offset is None}") # 추가
+        if y_offset is not None:
+            self.pan_y = -y_offset * (total_height - canvas_height)
+            print(f"DEBUG: set_pan - pan_y updated to: {self.pan_y}") # 추가
+        
+        self.render_docs()
 
     def prev_page(self):
         if self.pdf_doc and self.current_page_num > 0:
@@ -117,24 +189,20 @@ class TemplateController:
             self._render_current_page()
 
     def prepare_add_roi(self, x1, y1, x2, y2):
-        """ROI 추가를 준비하고, 사용자로부터 상세 정보를 입력받아 ROI를 최종 생성합니다."""
         if not self.pdf_doc:
             return
 
-        # 1. ROI의 PDF 좌표 및 검증 엔진 기준 예상 픽셀 면적 계산
         mat = self._get_display_matrix()
         pdf_coords = self._screen_to_pdf_coords(x1, y1, x2, y2, mat)
-        
+
         pdf_w = pdf_coords[2] - pdf_coords[0]
         pdf_h = pdf_coords[3] - pdf_coords[1]
-        
-        validation_scale = 3.0 # 검증 시 사용되는 렌더링 스케일
+
+        validation_scale = 3.0
         roi_pixel_area = (pdf_w * validation_scale) * (pdf_h * validation_scale)
-        
-        # 2. 면적의 3%를 Contour 임계치로 제안 (최소 50)
+
         suggested_threshold = max(50, int(roi_pixel_area * 0.03))
 
-        # 3. 사용자에게 ROI 정보 입력을 요청 (추천 임계치 전달)
         roi_info = self.view.get_roi_creation_info(suggested_threshold)
         name = roi_info.get('name')
 
@@ -144,7 +212,6 @@ class TemplateController:
             self.view.show_error("Error", "ROI name must be unique.")
             return
 
-        # 4. 앵커 탐색 등 최종 ROI 데이터 생성 (Service 위임)
         try:
             new_roi_data = self.service.create_roi_with_anchor(
                 pdf_doc=self.pdf_doc,
@@ -152,7 +219,7 @@ class TemplateController:
                 roi_coords=pdf_coords,
                 method=roi_info.get('method'),
                 threshold=roi_info.get('threshold'),
-                ocr_config=roi_info.get('ocr_config') # ocr_config 전달
+                ocr_config=roi_info.get('ocr_config')
             )
 
             self.current_template_rois[name] = new_roi_data
@@ -180,7 +247,6 @@ class TemplateController:
             return
 
         try:
-            # 파일 저장 로직은 Service에 위임
             self.service.save_template(
                 template_name,
                 self.current_pdf_path,
@@ -208,6 +274,14 @@ class TemplateController:
             self.current_pdf_path = pdf_path
             self.current_template_rois = template_data['rois']
             self.current_page_num = 0
+
+            # Fit to window on load
+            page = self.pdf_doc[self.current_page_num]
+            self.zoom = min(
+                self.view.canvas.winfo_width() / page.rect.width,
+                self.view.canvas.winfo_height() / page.rect.height
+            )
+            self.pan_x, self.pan_y = 0, 0
 
             self._render_current_page()
 

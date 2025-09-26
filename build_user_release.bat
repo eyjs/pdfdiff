@@ -47,6 +47,12 @@ venv\Scripts\python.exe -m PyInstaller ^
     --clean ^
     --add-data "resources;resources" ^
     --add-data "settings.json;." ^
+    --add-data "templates.json;." ^
+    --add-data "C:\Users\USER\AppData\Local\Programs\Python\Python313\tcl;tcl" ^
+    --add-data "C:\Users\USER\AppData\Local\Programs\Python\Python313\Lib\tkinter;tkinter" ^
+    --hidden-import=PIL ^
+    --hidden-import=PIL.Image ^
+    --hidden-import=app.controllers.validation_controller ^
     main.py
 
 if errorlevel 1 (

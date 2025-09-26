@@ -1,10 +1,23 @@
 import json
 import os
+import logging
+import sys
+from pathlib import Path
+from typing import List, Optional
+from domain.entities.template import Template
+from domain.entities.roi import ROI
+from domain.repositories.template_repository import TemplateRepository
+import json
+import os
+import logging
+import sys
+from pathlib import Path
 from typing import List, Optional
 from domain.entities.template import Template
 from domain.entities.roi import ROI
 from domain.repositories.template_repository import TemplateRepository
 from shared.exceptions import TemplateNotFoundError, DataPersistenceError, DataIntegrityError
+from shared.utils import get_base_path
 
 # 'settings' 객체를 import하여 중앙에서 설정을 관리합니다.
 from shared.settings import settings
@@ -12,19 +25,18 @@ from shared.settings import settings
 class JsonTemplateRepository(TemplateRepository):
     """
     JSON 파일 기반으로 템플릿 데이터를 관리하는 리포지토리 구현체.
-    중앙 설정 객체(settings)를 통해 파일 경로를 관리하여 안정성을 높였습니다.
     """
     def __init__(self, file_path: str = None):
         """
-        리포지토리를 초기화합니다.
-        Args:
-            file_path (str, optional): 템플릿 JSON 파일의 경로.
-                                       None이면 중앙 설정 객체에서 경로를 가져옵니다.
+        리포지토리를 초기화하고, 실행 환경에 맞는 파일 경로를 설정합니다.
         """
-        if file_path is None:
-            self.file_path = settings.storage.templates_file
+        if file_path:
+            self.file_path = Path(file_path)
         else:
-            self.file_path = file_path
+            base_path = get_base_path()
+            self.file_path = base_path / settings.storage.templates_file
+
+        logging.info(f"Template repository initialized. Data file path: {self.file_path}")
 
         # 클래스 내부에 템플릿 데이터를 저장할 변수 초기화
         self._templates: List[Template] = []

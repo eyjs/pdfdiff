@@ -1,101 +1,110 @@
-from tkinter import filedialog
+from tkinter import filedialog, messagebox
 import os
 import datetime
+import logging
 
 import fitz
+from PIL import Image
+from shared.exceptions import DocumentCorruptedError
+
+# Infrastructure Layer - OCR 서비스 및 검증 서비스
+from infrastructure.services.validation_vision_service import ValidationVisionService
+from infrastructure.services.tesseract_ocr_service import TesseractOcrService
+
+# EasyOCR 통합 서비스
+try:
+    from infrastructure.services.easyocr_service import EasyOCRService
+    EASYOCR_AVAILABLE = True
+except ImportError:
+    EASYOCR_AVAILABLE = False
+    logging.warning("EasyOCR 서비스를 가져올 수 없습니다. 'EasyOCR' 또는 '비교 모드'를 선택하면 Tesseract로 대체됩니다.")
+
+# Domain Layer
+from domain.services.validation_service import ValidationService
 
 class ValidationController:
     """
     ValidationWindow(View)와 ValidationService(Domain)를 연결하는 컨트롤러.
-    사용자 입력을 받아 서비스에 처리를 요청하고, 그 결과를 뷰에 전달합니다.
+    검증 실행에 필요한 모든 서비스를 동적으로 생성하고 전체 흐름을 관장합니다.
     """
-    def __init__(self, view, validation_service, template_service):
+    def __init__(self, view, doc_repo, template_service):
         self.view = view
-        self.validation_service = validation_service
+        self.doc_repo = doc_repo
         self.template_service = template_service
 
-        # UI/비즈니스 로직 상태를 관리하는 변수
-        self.mode = "파일"  # 기본 모드는 '파일'
+        # UI/비즈니스 로직 상태
+        self.mode = "파일"
         self.selected_template = None
         self.target_path = None
-        self.target_filename = None # 파일 이름 저장
-        self.last_results = [] # 마지막 검증 결과 저장
+        self.target_filename = None
+        self.last_results = []
 
-        # '파일' 모드에서 사용될 PDF 뷰어 관련 상태 변수
+        # 뷰어 관련 상태
         self.original_doc = None
         self.annotated_doc = None
         self.current_page_num = 0
-
-        # __init__에서는 View의 위젯에 직접 접근하는 코드를 실행하지 않습니다.
-        # View가 완전히 생성된 후에 initialize_view()가 호출됩니다.
+        self.zoom = 1.0
+        self.pan_x = 0
+        self.pan_y = 0
+        self.is_panning = False
+        self.pan_start_x = 0
+        self.pan_start_y = 0
 
     def initialize_view(self):
-        """View가 완전히 생성되고 준비된 후 MainController에 의해 호출됩니다."""
         self.load_templates()
 
-    def load_templates(self):
-        """템플릿 목록을 불러와 View의 콤보박스를 채웁니다."""
-        try:
-            names = self.template_service.get_all_template_names()
-            self.view.template_combo['values'] = names
-            if names:
-                self.view.template_combo.current(0)
-                self.on_template_selected()
-        except Exception as e:
-            self.view.log(f"템플릿 로드 오류: {e}")
+    def _create_ocr_service(self, engine_name: str):
+        """사용자 선택에 따라 OCR 서비스를 동적으로 생성합니다."""
+        
+        tesseract_service = TesseractOcrService()
 
-    def on_template_selected(self, event=None):
-        """사용자가 템플릿 콤보박스에서 항목을 선택했을 때 호출됩니다."""
-        name = self.view.template_var.get()
-        if not name: return
-        try:
-            self.selected_template = self.template_service.load_template(name)
-            self._update_ui_state()
-        except Exception as e:
-            self.view.log(f"'{name}' 템플릿 로드 실패: {e}")
-
-    def switch_mode(self, mode):
-        """'파일'/'폴더' 검증 모드를 전환합니다."""
-        self.mode = mode
-        self.target_path = None
-        self.view.update_path("")
-        self._update_ui_state()
-        self.view.update_save_button_state(False) # 모드 변경 시 저장 버튼 비활성화
-
-    def browse_target(self):
-        """검증할 파일 또는 폴더를 선택하는 대화상자를 엽니다."""
-        path = None
-        if self.mode == "파일":
-            path = filedialog.askopenfilename(title="PDF 파일 선택", filetypes=[("PDF files", "*.pdf")])
-        else:
-            path = filedialog.askdirectory(title="PDF 폴더 선택")
-
-        if path:
-            self.target_path = path
-            self.view.update_path(path)
-            self.view.update_save_button_state(False) # 대상 변경 시 저장 버튼 비활성화
-        self._update_ui_state()
-
-    def _update_ui_state(self):
-        """현재 상태(템플릿, 대상 경로)에 따라 UI(버튼 등)를 업데이트합니다."""
-        is_ready = self.selected_template and self.target_path
-        self.view.update_button_state(is_ready)
+        if engine_name == 'Tesseract':
+            logging.info("Tesseract 단독 서비스로 초기화합니다.")
+            return tesseract_service
+        
+        if EASYOCR_AVAILABLE:
+            if engine_name == 'EasyOCR':
+                logging.info("EasyOCR 단독 서비스 초기화 중...")
+                try:
+                    return EasyOCRService()
+                except Exception as e:
+                    logging.error(f"EasyOCR 초기화 실패: {e}. Tesseract로 대체합니다.")
+                    messagebox.showwarning("EasyOCR 실패", "EasyOCR 초기화에 실패했습니다. Tesseract 엔진으로 대체하여 실행합니다.")
+                    return tesseract_service
+        
+        if engine_name != 'Tesseract':
+            logging.warning(f"'{engine_name}'은(는) 유효한 OCR 엔진이 아니거나 EasyOCR을 사용할 수 없습니다. Tesseract를 사용합니다.")
+            if not EASYOCR_AVAILABLE:
+                 messagebox.showwarning("EasyOCR 없음", "EasyOCR이 설치되지 않았습니다. Tesseract 엔진으로 실행합니다.")
+        return tesseract_service
 
     def run_validation(self):
-        """'검사 실행' 버튼 클릭 시 호출되며, 모드에 따라 적절한 검증을 시작합니다."""
         self.view.clear_log()
         self.view.log(f"'{self.view.template_var.get()}' 템플릿으로 검증을 시작합니다.")
 
-        if self.mode == "파일":
-            self._run_single_file_validation()
-        else:
-            self._run_folder_validation()
+        # 1. UI에서 선택된 OCR 엔진 이름 가져오기
+        selected_engine = self.view.ocr_engine_var.get()
+        self.view.log(f"선택된 OCR 엔진: {selected_engine}")
 
-    def _run_single_file_validation(self):
-        """단일 파일 검증을 수행합니다."""
+        # 2. 선택된 이름에 맞는 서비스 동적 생성
         try:
-            # 1. Service에 문서 검증을 요청하고 결과를 받습니다.
-            self.last_results = self.validation_service.validate_document(
+            ocr_service = self._create_ocr_service(selected_engine)
+            vision_service = ValidationVisionService(ocr_service=ocr_service)
+            validation_service = ValidationService(self.doc_repo, vision_service)
+        except Exception as e:
+            self.view.log(f"🔥 서비스 초기화 중 심각한 오류 발생: {e}")
+            messagebox.showerror("오류", f"서비스를 초기화하는 중 오류가 발생했습니다: {e}")
+            return
+
+        # 3. 검증 모드에 따라 실행
+        if self.mode == "파일":
+            self._run_single_file_validation(validation_service)
+        else:
+            self._run_folder_validation(validation_service)
+
+    def _run_single_file_validation(self, validation_service):
+        try:
+            self.last_results = validation_service.validate_document(
                 self.selected_template,
                 self.target_path,
                 progress_callback=self._progress_callback
@@ -104,50 +113,43 @@ class ValidationController:
             self.view.log("="*50 + "\n상세 검증 결과:")
             self._log_results(self.last_results)
 
-            # 2. Service를 통해 결과 PDF(주석 추가)를 메모리에 생성합니다.
-            annotated_pdf_bytes = self.validation_service.create_annotated_pdf(self.target_path, self.last_results)
+            annotated_pdf_bytes = validation_service.create_annotated_pdf(
+                self.selected_template['original_pdf_path'],
+                self.target_path,
+                self.last_results
+            )
 
-            # 3. Service를 통해 뷰어에 표시할 문서들을 로드합니다.
             if self.original_doc: self.original_doc.close()
             if self.annotated_doc: self.annotated_doc.close()
-            self.original_doc, self.annotated_doc = self.validation_service.load_docs_for_viewer(
+
+            self.original_doc, self.annotated_doc = validation_service.load_docs_for_viewer(
                 self.selected_template['original_pdf_path'], annotated_pdf_bytes
             )
-            self.current_page_num = 0
-            self.render_docs() # 뷰어 렌더링 시작
-            self.view.update_save_button_state(True) # 결과 저장 버튼 활성화
 
+            if not self.original_doc or len(self.original_doc) == 0:
+                messagebox.showerror("PDF 로드 오류", "원본 PDF 파일을 로드할 수 없거나 페이지가 없습니다. 템플릿 설정을 확인해주세요.")
+                self.view.update_save_button_state(False)
+                return
+
+            self.current_page_num = 0
+            page = self.original_doc[self.current_page_num]
+            zoom_x = self.view.left_canvas.winfo_width() / page.rect.width
+            zoom_y = self.view.left_canvas.winfo_height() / page.rect.height
+            self.zoom = min(zoom_x, zoom_y) * 0.98
+            self.pan_x, self.pan_y = 0, 0
+
+            self.render_docs()
+            self.view.update_save_button_state(True)
+
+        except DocumentCorruptedError as e:
+            messagebox.showerror("PDF 로드 실패", f"PDF 파일을 로드하는 중 오류가 발생했습니다: {e}")
+            self.view.update_save_button_state(False)
         except Exception as e:
             self.view.log(f"🔥 검증 중 심각한 오류 발생: {e}")
-            self.view.update_save_button_state(False) # 오류 시 저장 버튼 비활성화
+            messagebox.showerror("오류", f"검증 중 오류가 발생했습니다: {e}")
+            self.view.update_save_button_state(False)
 
-    def save_result_pdf(self):
-        """현재 검증 결과를 하이라이트된 PDF 파일로 저장합니다."""
-        if not self.annotated_doc or not self.last_results:
-            self.view.show_warning("저장 오류", "먼저 검증을 실행해야 합니다.")
-            return
-
-        try:
-            # 1. 전체 문서의 통과/실패 여부 결정
-            is_pass = all(r['status'] == 'OK' for r in self.last_results)
-            status_folder = "pass" if is_pass else "fail"
-
-            # 2. 저장 경로 구성
-            template_name = self.view.template_var.get()
-            output_path = os.path.join("output", template_name, status_folder)
-            os.makedirs(output_path, exist_ok=True)
-            
-            output_filepath = os.path.join(output_path, self.target_filename)
-
-            # 3. 파일 저장
-            self.annotated_doc.save(output_filepath)
-            self.view.show_info("저장 완료", f"결과가 다음 파일로 저장되었습니다:\n{os.path.abspath(output_filepath)}")
-
-        except Exception as e:
-            self.view.show_error("저장 실패", f"결과를 저장하는 중 오류가 발생했습니다:\n{e}")
-
-    def _run_folder_validation(self):
-        """폴더 내 모든 PDF 파일에 대한 일괄 검증을 수행합니다."""
+    def _run_folder_validation(self, validation_service):
         pdf_files = [f for f in os.listdir(self.target_path) if f.lower().endswith('.pdf')]
         if not pdf_files:
             self.view.log("폴더에 검증할 PDF 파일이 없습니다.")
@@ -159,7 +161,7 @@ class ValidationController:
         fail_dir = os.path.join(base_output_dir, "fail")
         os.makedirs(pass_dir, exist_ok=True)
         os.makedirs(fail_dir, exist_ok=True)
-        
+
         self.view.log(f"결과는 '{os.path.abspath(base_output_dir)}' 폴더에 저장됩니다.")
 
         success_count, fail_count = 0, 0
@@ -171,12 +173,11 @@ class ValidationController:
             self.view.log(f"[{i+1}/{total}] '{filename}' 검증 중...")
 
             try:
-                results = self.validation_service.validate_document(self.selected_template, filepath)
+                results = validation_service.validate_document(self.selected_template, filepath)
                 is_pass = all(r['status'] == 'OK' for r in results)
 
-                # 결과 PDF 생성
-                annotated_pdf_bytes = self.validation_service.create_annotated_pdf(filepath, results)
-                
+                annotated_pdf_bytes = validation_service.create_annotated_pdf(self.selected_template['original_pdf_path'], filepath, results)
+
                 if is_pass:
                     success_count += 1
                     self.view.log("  -> ✅ 통과.")
@@ -187,10 +188,8 @@ class ValidationController:
                     self.view.log(f"  -> ❌ 미흡 ({deficient_count}개 항목).")
                     output_path = os.path.join(fail_dir, filename)
 
-                # 파일로 저장
                 with open(output_path, "wb") as f:
                     f.write(annotated_pdf_bytes)
-                self.view.log(f"  -> 저장 완료: {os.path.abspath(output_path)}")
 
             except Exception as e:
                 fail_count += 1
@@ -198,71 +197,171 @@ class ValidationController:
 
         self.view.log("="*50 + f"\n일괄 검증 완료! (성공: {success_count}, 실패/오류: {fail_count})")
 
+    # --- 이하 기존 메서드들 (load_templates, on_template_selected 등) ---
+    def load_templates(self):
+        try:
+            names = self.template_service.get_all_template_names()
+            self.view.template_combo['values'] = names
+            if names:
+                self.view.template_combo.current(0)
+                self.on_template_selected()
+        except Exception as e:
+            self.view.log(f"템플릿 로드 오류: {e}")
+
+    def on_template_selected(self, event=None):
+        name = self.view.template_var.get()
+        if not name: return
+        try:
+            self.selected_template = self.template_service.load_template(name)
+            self._update_ui_state()
+        except Exception as e:
+            self.view.log(f"'{name}' 템플릿 로드 실패: {e}")
+
+    def switch_mode(self, mode):
+        self.mode = mode
+        self.target_path = None
+        self.view.update_path("")
+        self._update_ui_state()
+        self.view.update_save_button_state(False)
+
+    def browse_target(self):
+        path = None
+        if self.mode == "파일":
+            path = filedialog.askopenfilename(title="PDF 파일 선택", filetypes=[("PDF files", "*.pdf")])
+        else:
+            path = filedialog.askdirectory(title="PDF 폴더 선택")
+
+        if path:
+            self.target_path = path
+            self.view.update_path(path)
+            self.view.update_save_button_state(False)
+        self._update_ui_state()
+
+    def _update_ui_state(self):
+        is_ready = self.selected_template and self.target_path
+        self.view.update_button_state(is_ready)
+
+    def save_result_pdf(self):
+        if not self.annotated_doc or not self.last_results:
+            messagebox.showwarning("저장 오류", "먼저 검증을 실행해야 합니다.")
+            return
+        try:
+            is_pass = all(r['status'] == 'OK' for r in self.last_results)
+            status_folder = "pass" if is_pass else "fail"
+            template_name = self.view.template_var.get()
+            output_path = os.path.join("output", template_name, status_folder)
+            os.makedirs(output_path, exist_ok=True)
+            output_filepath = os.path.join(output_path, self.target_filename)
+            self.annotated_doc.save(output_filepath)
+            messagebox.showinfo("저장 완료", f"결과가 다음 파일로 저장되었습니다:\n{os.path.abspath(output_filepath)}")
+        except Exception as e:
+            messagebox.showerror("저장 실패", f"결과를 저장하는 중 오류가 발생했습니다:\n{e}")
+
     def _progress_callback(self, message, current, total):
-        """Service에서 진행 상황을 View에 전달하기 위한 콜백 함수입니다."""
         self.view.log(message)
         self.view.update_progress(current, total)
 
     def _log_results(self, results):
-        """검증 결과 리스트를 로그 창에 보기 좋게 출력합니다."""
         for result in results:
             icon = "✅" if result['status'] == 'OK' else "❌"
             self.view.log(f"  {icon} [{result['field_name']}]: {result['message']}")
 
     # --- PDF Viewer Control Methods ---
-    def _get_display_matrix(self, canvas, doc, page_num):
-        """현재 캔버스 크기에 맞는 PyMuPDF 변환 매트릭스를 계산합니다."""
-        if not doc or canvas.winfo_width() < 10:
+    def _get_display_matrix(self):
+        if not self.original_doc:
             return fitz.Matrix(1, 1)
-        
-        page = doc[page_num]
-        zoom = min(
-            canvas.winfo_width() / page.rect.width,
-            canvas.winfo_height() / page.rect.height
-        ) * 0.95 # 약간의 여백을 줌
-        return fitz.Matrix(zoom, zoom)
+        return fitz.Matrix(self.zoom, self.zoom)
 
     def _pdf_to_screen_coords(self, pdf_coords, mat):
-        """PDF 좌표를 화면(스크린) 좌표로 변환합니다."""
         p1 = fitz.Point(pdf_coords[0], pdf_coords[1]) * mat
         p2 = fitz.Point(pdf_coords[2], pdf_coords[3]) * mat
-        return p1.x, p1.y, p2.x, p2.y
+        screen_x0 = p1.x + self.pan_x
+        screen_y0 = p1.y + self.pan_y
+        screen_x1 = p2.x + self.pan_x
+        screen_y1 = p2.y + self.pan_y
+        return screen_x0, screen_y0, screen_x1, screen_y1
 
     def render_docs(self):
-        """뷰어에 현재 페이지의 원본/결과 이미지를 렌더링합니다."""
         if not self.original_doc or not self.annotated_doc:
             return
 
-        # View(Canvas)의 현재 크기를 가져옴
         w, h = self.view.left_canvas.winfo_width(), self.view.left_canvas.winfo_height()
-        if w < 10 or h < 10: # 창이 완전히 그려지기 전이면 잠시 대기
+        if w < 10 or h < 10:
             self.view.root.after(50, self.render_docs)
             return
 
-        # Service에 페이지 이미지 렌더링을 요청
-        original_img = self.validation_service.render_page_to_image(self.original_doc, self.current_page_num, (w,h))
-        annotated_img = self.validation_service.render_page_to_image(self.annotated_doc, self.current_page_num, (w,h))
+        mat = self._get_display_matrix()
 
-        # 현재 페이지의 ROI들을 가져와 화면 좌표로 변환
-        mat = self._get_display_matrix(self.view.left_canvas, self.original_doc, self.current_page_num)
+        original_pix = self.original_doc[self.current_page_num].get_pixmap(matrix=mat, alpha=False)
+        annotated_pix = self.annotated_doc[self.current_page_num].get_pixmap(matrix=mat, alpha=False)
+
+        original_img = Image.frombytes("RGB", [original_pix.width, original_pix.height], original_pix.samples)
+        annotated_img = Image.frombytes("RGB", [annotated_pix.width, annotated_pix.height], annotated_pix.samples)
+
         rois_on_page = {
             name: {**roi, 'screen_coords': self._pdf_to_screen_coords(roi['coords'], mat)}
             for name, roi in self.selected_template['rois'].items()
             if roi['page'] == self.current_page_num
         }
 
-        # 렌더링된 이미지를 View에 전달하여 화면 업데이트
-        self.view.update_viewer(original_img, annotated_img, rois_on_page, self.current_page_num, len(self.original_doc))
+        page = self.original_doc[self.current_page_num]
+        total_width = page.rect.width * self.zoom
+        total_height = page.rect.height * self.zoom
+
+        self.view.update_viewer(
+            original_img, annotated_img, rois_on_page,
+            self.current_page_num, len(self.original_doc),
+            self.pan_x, self.pan_y, total_width, total_height
+        )
+
+    def handle_zoom(self, factor, x, y):
+        if not self.original_doc: return
+        img_x, img_y = x - self.pan_x, y - self.pan_y
+        pdf_p = fitz.Point(img_x, img_y) * ~fitz.Matrix(self.zoom, self.zoom)
+        self.zoom *= factor
+        self.zoom = max(0.1, min(self.zoom, 5.0))
+        new_img_p = pdf_p * fitz.Matrix(self.zoom, self.zoom)
+        self.pan_x += img_x - new_img_p.x
+        self.pan_y += img_y - new_img_p.y
+        self.render_docs()
+
+    def start_pan(self, event):
+        self.is_panning = True
+        self.pan_start_x = event.x
+        self.pan_start_y = event.y
+
+    def do_pan(self, event):
+        if self.is_panning:
+            dx = event.x - self.pan_start_x
+            dy = event.y - self.pan_start_y
+            self.pan_x += dx
+            self.pan_y += dy
+            self.pan_start_x = event.x
+            self.pan_start_y = event.y
+            self.render_docs()
+
+    def end_pan(self, event):
+        self.is_panning = False
+
+    def set_pan(self, x_offset, y_offset):
+        if not self.original_doc: return
+        page = self.original_doc[self.current_page_num]
+        total_width = page.rect.width * self.zoom
+        total_height = page.rect.height * self.zoom
+        canvas_width = self.view.left_canvas.winfo_width()
+        canvas_height = self.view.left_canvas.winfo_height()
+        if x_offset is not None:
+            self.pan_x = -x_offset * (total_width - canvas_width)
+        if y_offset is not None:
+            self.pan_y = -y_offset * (total_height - canvas_height)
+        self.render_docs()
 
     def prev_page(self):
-        """'이전 페이지' 버튼 클릭 시 호출됩니다."""
-        if self.current_page_num > 0:
+        if self.original_doc and self.current_page_num > 0:
             self.current_page_num -= 1
             self.render_docs()
 
     def next_page(self):
-        """'다음 페이지' 버튼 클릭 시 호출됩니다."""
         if self.original_doc and self.current_page_num < len(self.original_doc) - 1:
             self.current_page_num += 1
             self.render_docs()
-

@@ -3,8 +3,6 @@
   "debug_enabled": false,
   "log_level": "INFO",
   "tesseract": {
-    "executable_path": "C:\\Users\\USER\\dev\\pdfdiff\\resources\\vendor\\tesseract\\tesseract.exe",
-    "tessdata_path": "C:\\Users\\USER\\dev\\pdfdiff\\resources\\vendor\\tesseract\\tessdata",
     "languages": "kor+eng",
     "config_default": "--oem 3 --psm 6",
     "config_single_word": "--oem 3 --psm 8",
@@ -27,8 +25,15 @@
     "enable_debug_mode": false,
     "save_debug_images": true
   },
+  "ocr_engine_selection": {
+    "default_engine": "comparative",
+    "easyocr_gpu_enabled": false
+  },
+  "easyocr": {
+    "model_storage_directory": "resources/vendor/easyocr/models"
+  },
   "storage": {
-    "templates_file": "templates.json",
+
     "output_directory": "output",
     "input_directory": "input",
     "resources_directory": "resources",

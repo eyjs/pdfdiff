@@ -106,3 +106,6 @@ RETRY_DELAY_SECONDS = 1
 TESSERACT_EXECUTABLE = "tesseract.exe"
 TESSDATA_SUBDIR = "tessdata"
 REQUIRED_LANGUAGES = ["eng", "kor"]
+
+# EasyOCR 관련
+EASYOCR_MODEL_DIR = "resources/vendor/easyocr/models"

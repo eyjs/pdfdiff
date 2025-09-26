@@ -55,4 +55,3 @@ class MainWindow:
             state=tk.NORMAL # 버튼 활성화
         )
         validator_button.pack(fill=tk.X, pady=5)
-

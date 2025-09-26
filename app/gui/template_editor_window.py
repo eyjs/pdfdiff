@@ -12,7 +12,7 @@ class TemplateEditorWindow:
         self.root = root
         self.controller = controller
 
-        self.root.title("Template Editor (Clean Architecture)")
+        self.root.title("Template Editor")
         self.root.geometry("1200x850")
 
         # UI 상태 변수
@@ -31,11 +31,15 @@ class TemplateEditorWindow:
 
         ttk.Button(top_frame, text="PDF불러오기", command=self.controller.open_pdf_file).pack(side=tk.LEFT, padx=5)
 
+        # --- Navigation & Zoom Frame ---
         nav_frame = ttk.Frame(top_frame)
         ttk.Button(nav_frame, text="◀ 이전", command=self.controller.prev_page).pack(side=tk.LEFT)
         self.page_label = ttk.Label(nav_frame, text="Page: 0/0", width=15, anchor="center")
         self.page_label.pack(side=tk.LEFT, padx=5)
         ttk.Button(nav_frame, text="다음 ▶", command=self.controller.next_page).pack(side=tk.LEFT)
+
+        ttk.Button(nav_frame, text="-", command=self._zoom_out, width=2).pack(side=tk.LEFT, padx=(10, 2))
+        ttk.Button(nav_frame, text="+", command=self._zoom_in, width=2).pack(side=tk.LEFT)
         nav_frame.pack(side=tk.LEFT, padx=10)
 
         ttk.Button(top_frame, text="템플릿 삭제", command=self.controller.delete_template).pack(side=tk.RIGHT, padx=5)
@@ -45,15 +49,33 @@ class TemplateEditorWindow:
         # --- Main Frame ---
         main_frame = ttk.Frame(self.root, padding=(10, 0, 10, 10))
         main_frame.pack(fill=tk.BOTH, expand=True)
+        main_frame.rowconfigure(0, weight=1)
+        main_frame.columnconfigure(0, weight=1)
 
-        self.canvas = tk.Canvas(main_frame, bg='lightgrey', cursor="plus")
-        self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        canvas_frame = ttk.Frame(main_frame)
+        canvas_frame.grid(row=0, column=0, sticky="nsew")
+        canvas_frame.rowconfigure(0, weight=1)
+        canvas_frame.columnconfigure(0, weight=1)
+
+        self.canvas = tk.Canvas(canvas_frame, bg='lightgrey', cursor="plus")
+        self.canvas.grid(row=0, column=0, sticky="nsew")
+
+        self.v_scroll = ttk.Scrollbar(canvas_frame, orient=tk.VERTICAL, command=self._on_vscroll)
+        self.v_scroll.grid(row=0, column=1, sticky="ns")
+        self.h_scroll = ttk.Scrollbar(canvas_frame, orient=tk.HORIZONTAL, command=self._on_hscroll)
+        self.h_scroll.grid(row=1, column=0, sticky="ew")
+
+        # 이벤트 바인딩
         self.canvas.bind("<ButtonPress-1>", self._start_drag)
         self.canvas.bind("<B1-Motion>", self._drag_motion)
         self.canvas.bind("<ButtonRelease-1>", self._end_drag)
+        self.canvas.bind("<Control-MouseWheel>", self._on_zoom)
+        self.canvas.bind("<ButtonPress-2>", self.controller.start_pan)
+        self.canvas.bind("<B2-Motion>", self.controller.do_pan)
+        self.canvas.bind("<ButtonRelease-2>", self.controller.end_pan)
 
         right_panel = ttk.Frame(main_frame)
-        right_panel.pack(side=tk.RIGHT, fill=tk.Y, padx=5)
+        right_panel.grid(row=0, column=1, sticky="ns", padx=5)
 
         roi_frame = ttk.LabelFrame(right_panel, text="ROI List (Double-click to delete)", padding=5)
         roi_frame.pack(fill=tk.BOTH, expand=True)
@@ -62,6 +84,28 @@ class TemplateEditorWindow:
         self.roi_listbox.bind("<Double-1>", lambda e: self.controller.delete_selected_roi())
 
     # --- Event Handlers (Calls Controller) ---
+    def _on_zoom(self, event):
+        factor = 1.1 if event.delta > 0 else 1 / 1.1
+        self.controller.handle_zoom(factor, event.x, event.y)
+
+    def _zoom_in(self):
+        x = self.canvas.winfo_width() / 2
+        y = self.canvas.winfo_height() / 2
+        self.controller.handle_zoom(1.2, x, y)
+
+    def _zoom_out(self):
+        x = self.canvas.winfo_width() / 2
+        y = self.canvas.winfo_height() / 2
+        self.controller.handle_zoom(1 / 1.2, x, y)
+
+    def _on_vscroll(self, *args):
+        if args[0] == 'moveto':
+            self.controller.set_pan(None, float(args[1]))
+
+    def _on_hscroll(self, *args):
+        if args[0] == 'moveto':
+            self.controller.set_pan(float(args[1]), None)
+
     def _start_drag(self, event):
         self.start_x = self.canvas.canvasx(event.x)
         self.start_y = self.canvas.canvasy(event.y)
@@ -88,19 +132,38 @@ class TemplateEditorWindow:
         if abs(x1 - x2) < 5 or abs(y1 - y2) < 5:
             return
 
-        # UI는 좌표만 전달, 처리는 Controller가 담당
         self.controller.prepare_add_roi(x1, y1, x2, y2)
 
     # --- UI Update Methods (Called by Controller) ---
-    def update_page_display(self, page_image, page_num, total_pages, rois_on_page):
+    def update_page_display(self, page_image, page_num, total_pages, rois_on_page, pan_x, pan_y, total_width, total_height):
         if page_image:
             self.tk_image = ImageTk.PhotoImage(page_image)
             self.canvas.delete("all")
-            self.canvas.create_image(0, 0, anchor=tk.NW, image=self.tk_image)
+            self.canvas.create_image(pan_x, pan_y, anchor=tk.NW, image=self.tk_image)
             self._draw_rois(rois_on_page)
 
         self.page_label.config(text=f"Page: {page_num + 1}/{total_pages}")
         self.update_roi_listbox(rois_on_page)
+
+        # 스크롤바 업데이트
+        canvas_w = self.canvas.winfo_width()
+        canvas_h = self.canvas.winfo_height()
+
+        if total_width > canvas_w:
+            first_x = -pan_x / total_width
+            last_x = (-pan_x + canvas_w) / total_width
+            self.h_scroll.set(first_x, last_x)
+            self.h_scroll.grid()
+        else:
+            self.h_scroll.grid_remove()
+
+        if total_height > canvas_h:
+            first_y = -pan_y / total_height
+            last_y = (-pan_y + canvas_h) / total_height
+            self.v_scroll.set(first_y, last_y)
+            self.v_scroll.grid()
+        else:
+            self.v_scroll.grid_remove()
 
     def update_roi_listbox(self, rois_on_page):
         self.roi_listbox.delete(0, tk.END)
@@ -169,7 +232,7 @@ class TemplateEditorWindow:
 
         # OCR 세부 옵션
         ocr_options_frame = ttk.LabelFrame(main_dialog_frame, text="OCR Options", padding=10)
-        
+
         # OCR 타입
         ttk.Label(ocr_options_frame, text="OCR 타입:").pack(anchor=tk.W)
         ocr_type_frame = ttk.Frame(ocr_options_frame)
@@ -222,7 +285,7 @@ class TemplateEditorWindow:
                 else: # Contour
                     threshold_var.set(suggested_contour_threshold)
                     suggestion_label.config(text=f"(추천 값: {suggested_contour_threshold}) - 변경된 픽셀 면적")
-        
+
         method_var.trace('w', update_ui_based_on_method)
         update_ui_based_on_method()
 
@@ -230,7 +293,7 @@ class TemplateEditorWindow:
             result['name'] = name_var.get().strip()
             result['method'] = method_var.get()
             result['threshold'] = threshold_var.get()
-            
+
             if result['method'] == 'ocr':
                 ocr_type = ocr_type_var.get()
                 psm_choice = psm_var.get().split(':')[0]
