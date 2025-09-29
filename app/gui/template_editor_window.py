@@ -226,9 +226,10 @@ class TemplateEditorWindow:
         ttk.Label(main_dialog_frame, text="검증 방식:").pack(anchor=tk.W, padx=5, pady=2)
         method_frame = ttk.Frame(main_dialog_frame)
         ttk.Radiobutton(method_frame, text="Pixel Count", variable=method_var, value="pixel_count").pack(side=tk.LEFT, padx=5)
-        ttk.Radiobutton(method_frame, text="Contour", variable=method_var, value="contour").pack(side=tk.LEFT, padx=5)
-        ttk.Radiobutton(method_frame, text="SSIM", variable=method_var, value="ssim").pack(side=tk.LEFT, padx=5)
         ttk.Radiobutton(method_frame, text="OCR", variable=method_var, value="ocr").pack(side=tk.LEFT, padx=5)
+        # The 'Contour' and 'SSIM' methods are hidden from the UI for simplicity, but the backend logic remains.
+        # ttk.Radiobutton(method_frame, text="Contour", variable=method_var, value="contour").pack(side=tk.LEFT, padx=5)
+        # ttk.Radiobutton(method_frame, text="SSIM", variable=method_var, value="ssim").pack(side=tk.LEFT, padx=5)
         method_frame.pack(fill=tk.X, padx=5, pady=(0, 10))
 
         # OCR 세부 옵션

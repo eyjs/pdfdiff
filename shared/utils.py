@@ -17,12 +17,16 @@ from shared.types import *
 from shared.exceptions import *
 
 def get_base_path() -> Path:
-    """ PyInstaller로 빌드되었는지 여부에 따라 애플리케이션의 기본 경로를 반환합니다. """
-    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
-        # PyInstaller 번들로 실행된 경우, 파일이 압축 해제된 임시 폴더
-        return Path(sys._MEIPASS)
+    """ 
+    PyInstaller로 빌드되었는지 여부에 따라 사용자의 데이터 파일(예: templates.json)이
+    저장되거나 참조되어야 할 기본 경로를 반환합니다.
+    """
+    if getattr(sys, 'frozen', False):
+        # PyInstaller 번들로 실행된 경우, exe 파일이 있는 폴더를 반환합니다.
+        # 이 경로는 사용자가 파일을 쓰고 읽을 수 있는 영구적인 위치입니다.
+        return Path(sys.executable).parent
     else:
-        # 일반 .py 스크립트로 실행된 경우, 이 파일(utils.py)의 상위 폴더(shared)의 상위 폴더(프로젝트 루트)
+        # 일반 .py 스크립트로 실행된 경우, 프로젝트 루트를 반환합니다.
         return Path(__file__).resolve().parent.parent
 
 

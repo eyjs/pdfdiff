@@ -11,7 +11,7 @@ class MainWindow:
     def __init__(self, root, controller):
         self.root = root
         self.controller = controller
-        self.root.title("PDF 검증 시스템 v3.0")
+        self.root.title("PDF 검증 시스템 v1.0")
 
         # 창을 화면 중앙에 위치시키기
         window_width = 400

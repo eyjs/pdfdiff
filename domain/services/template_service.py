@@ -1,5 +1,6 @@
 # 파일 경로: domain/services/template_service.py
 import os
+from pathlib import Path
 from domain.entities.template import Template
 from domain.entities.roi import ROI, ValidationMethod
 from domain.repositories.template_repository import TemplateRepository
@@ -45,15 +46,7 @@ class TemplateService:
         템플릿 데이터를 받아 엔티티로 변환 후 Repository에 저장을 위임합니다.
         경로는 항상 애플리케이션 루트에 상대적인 경로로 저장합니다.
         """
-        # get_base_path()를 사용하여 앱의 루트 경로를 가져옵니다.
-        base_path = get_base_path()
-        try:
-            # pdf_path를 앱 루트에 대한 상대 경로로 변환합니다.
-            relative_pdf_path = os.path.relpath(pdf_path, base_path)
-        except ValueError:
-            # 다른 드라이브에 있는 등 상대 경로를 만들 수 없는 경우 절대 경로를 그대로 사용합니다.
-            relative_pdf_path = pdf_path
-
+        # PDF 경로를 절대 경로 그대로 사용하도록 변경
         roi_objects = {
             roi_name: ROI(
                 name=roi_name,
@@ -69,7 +62,7 @@ class TemplateService:
 
         template = Template(
             name=name,
-            original_pdf_path=relative_pdf_path,
+            original_pdf_path=pdf_path, # 절대 경로를 그대로 저장
             rois=roi_objects
         )
 
@@ -84,19 +77,14 @@ class TemplateService:
         if not template:
             raise TemplateNotFoundError(f"템플릿 '{name}'을(를) 찾을 수 없습니다.")
 
-        # get_base_path()를 사용하여 앱의 실제 기본 경로를 가져옵니다.
-        # (개발 환경에서는 프로젝트 루트, 배포 환경에서는 _MEIPASS 임시 폴더)
-        base_path = get_base_path()
-        
-        # 저장된 상대 경로와 기본 경로를 조합하여 실제 절대 경로를 생성합니다.
-        abs_pdf_path = base_path / template.original_pdf_path
+        # pathlib.Path를 사용하여 저장된 절대 경로를 처리합니다.
+        abs_pdf_path = Path(template.original_pdf_path)
 
         if not abs_pdf_path.exists():
             raise FileNotFoundError(f"원본 PDF 파일을 찾을 수 없습니다: {abs_pdf_path}")
 
-        # 컨트롤러가 파일 경로를 바로 사용할 수 있도록 절대 경로로 업데이트
+        # to_dict()는 이미 올바른 절대 경로를 포함하므로 별도의 업데이트가 필요 없습니다.
         template_data = template.to_dict()
-        template_data['original_pdf_path'] = str(abs_pdf_path)
         
         return template_data
 
