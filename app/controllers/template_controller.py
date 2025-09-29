@@ -157,26 +157,21 @@ class TemplateController:
 
     def set_pan(self, x_offset, y_offset):
         """스크롤바로부터 직접 팬 위치를 설정합니다."""
-        print(f"DEBUG: set_pan called with x_offset={x_offset}, y_offset={y_offset}") # 추가
-        if not self.original_doc: return
+        if not self.pdf_doc: return
 
-        page = self.original_doc[self.current_page_num]
+        page = self.pdf_doc[self.current_page_num]
         total_width = page.rect.width * self.zoom
         total_height = page.rect.height * self.zoom
-        canvas_width = self.view.left_canvas.winfo_width()
-        canvas_height = self.view.left_canvas.winfo_height()
+        canvas_width = self.view.canvas.winfo_width()
+        canvas_height = self.view.canvas.winfo_height()
 
-        print(f"DEBUG: set_pan - Before x_offset check. x_offset is None: {x_offset is None}") # 추가
         if x_offset is not None:
             self.pan_x = -x_offset * (total_width - canvas_width)
-            print(f"DEBUG: set_pan - pan_x updated to: {self.pan_x}") # 추가
         
-        print(f"DEBUG: set_pan - Before y_offset check. y_offset is None: {y_offset is None}") # 추가
         if y_offset is not None:
             self.pan_y = -y_offset * (total_height - canvas_height)
-            print(f"DEBUG: set_pan - pan_y updated to: {self.pan_y}") # 추가
         
-        self.render_docs()
+        self._render_current_page()
 
     def prev_page(self):
         if self.pdf_doc and self.current_page_num > 0:

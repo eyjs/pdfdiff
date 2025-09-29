@@ -206,7 +206,7 @@ class TemplateEditorWindow:
 
         # --- 변수 설정 ---
         name_var = tk.StringVar()
-        method_var = tk.StringVar(value="ssim")
+        method_var = tk.StringVar(value="pixel_count")
         threshold_var = tk.IntVar()
         ocr_type_var = tk.StringVar(value="kor_eng")
         psm_var = tk.StringVar(value="7: 이름, 항목 등 일반적인 한 줄 텍스트 (기본값)")
@@ -225,9 +225,10 @@ class TemplateEditorWindow:
         # 검증 방식
         ttk.Label(main_dialog_frame, text="검증 방식:").pack(anchor=tk.W, padx=5, pady=2)
         method_frame = ttk.Frame(main_dialog_frame)
+        ttk.Radiobutton(method_frame, text="Pixel Count", variable=method_var, value="pixel_count").pack(side=tk.LEFT, padx=5)
+        ttk.Radiobutton(method_frame, text="Contour", variable=method_var, value="contour").pack(side=tk.LEFT, padx=5)
         ttk.Radiobutton(method_frame, text="SSIM", variable=method_var, value="ssim").pack(side=tk.LEFT, padx=5)
         ttk.Radiobutton(method_frame, text="OCR", variable=method_var, value="ocr").pack(side=tk.LEFT, padx=5)
-        ttk.Radiobutton(method_frame, text="Contour", variable=method_var, value="contour").pack(side=tk.LEFT, padx=5)
         method_frame.pack(fill=tk.X, padx=5, pady=(0, 10))
 
         # OCR 세부 옵션
@@ -280,8 +281,11 @@ class TemplateEditorWindow:
             else:
                 ocr_options_frame.pack_forget()
                 if method == "ssim":
-                    threshold_var.set(15)
-                    suggestion_label.config(text="(100 - 유사도 % 최소값)")
+                    threshold_var.set(5)
+                    suggestion_label.config(text="(변경되어야 할 최소 픽셀 비율 %)")
+                elif method == "pixel_count":
+                    threshold_var.set(70)
+                    suggestion_label.config(text="(입력으로 간주할 최소 픽셀 개수)")
                 else: # Contour
                     threshold_var.set(suggested_contour_threshold)
                     suggestion_label.config(text=f"(추천 값: {suggested_contour_threshold}) - 변경된 픽셀 면적")

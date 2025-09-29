@@ -12,6 +12,7 @@ class ValidationMethod(Enum):
     OCR = "ocr"
     CONTOUR = "contour"
     SSIM = "ssim"
+    PIXEL_COUNT = "pixel_count"
 
 
 @dataclass

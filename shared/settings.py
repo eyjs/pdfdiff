@@ -129,7 +129,11 @@ class Settings:
             self._update_from_dict(self.ui, config.get("ui", {}))
             self._update_from_dict(self.validation, config.get("validation", {}))
             self._update_from_dict(self.ocr_engine_selection, config.get("ocr_engine_selection", {})) # 추가
-            self._update_from_dict(self.easyocr, config.get("easyocr", {})) # 추가
+
+            easyocr_config = config.get("easyocr", {})
+            easyocr_config.pop('model_storage_directory', None)  # 코드에서 설정한 절대 경로를 유지
+            self._update_from_dict(self.easyocr, easyocr_config)
+
             storage_config = config.get("storage", {})
             storage_config.pop('templates_file', None)  # 코드에서 설정한 경로를 유지하기 위해 파일 값 무시
             self._update_from_dict(self.storage, storage_config)

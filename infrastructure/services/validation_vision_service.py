@@ -76,6 +76,8 @@ class ValidationVisionService:
             # --- 4. 검증 로직 분기 ---
             if method == "ocr":
                 self._validate_with_ocr(result, original_roi_resized, filled_roi_color, threshold, roi_info)
+            elif method == "pixel_count":
+                self._validate_with_pixel_count(result, original_roi_resized, filled_roi_color, threshold)
             elif method == "contour":
                 self._validate_with_contour(result, original_roi_resized, filled_roi_color, threshold)
             elif method == "ssim":
@@ -149,13 +151,56 @@ class ValidationVisionService:
         return globally_corrected_coords
 
     # --- 검증 헬퍼 메서드들 (구체화된 로직) ---
+    def _validate_with_pixel_count(self, result, original_roi, filled_roi, threshold):
+        # 1. Binarize both images using Otsu's method for robustness
+        gray_original = cv2.cvtColor(original_roi, cv2.COLOR_BGR2GRAY)
+        gray_filled = cv2.cvtColor(filled_roi, cv2.COLOR_BGR2GRAY)
+        _, thresh_original = cv2.threshold(gray_original, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+        _, thresh_filled = cv2.threshold(gray_filled, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+
+        # 2. Create an "exclusion zone" by dilating the original checkbox border.
+        # This accounts for scanning distortions (thicker lines, warping).
+        # A 5x5 kernel allows for ~2-3 pixels of distortion tolerance.
+        kernel = np.ones((5, 5), np.uint8)
+        exclusion_zone = cv2.dilate(thresh_original, kernel, iterations=1)
+
+        # 3. Subtract the exclusion zone from the filled image.
+        # This leaves only pixels that are "new" and not part of the original (distorted) border.
+        new_content_mask = cv2.bitwise_and(thresh_filled, cv2.bitwise_not(exclusion_zone))
+
+        # 4. Count the remaining pixels. This is our actual change.
+        change_in_pixels = np.count_nonzero(new_content_mask)
+
+        # --- DEBUG IMAGE SAVING ---
+        try:
+            import os
+            output_dir = "output/debug"
+            os.makedirs(output_dir, exist_ok=True)
+            field_name = result["field_name"]
+            cv2.imwrite(os.path.join(output_dir, f"{field_name}_pc_1_original_binary.png"), thresh_original)
+            cv2.imwrite(os.path.join(output_dir, f"{field_name}_pc_2_filled_binary.png"), thresh_filled)
+            cv2.imwrite(os.path.join(output_dir, f"{field_name}_pc_3_exclusion_zone.png"), exclusion_zone)
+            cv2.imwrite(os.path.join(output_dir, f"{field_name}_pc_4_new_content.png"), new_content_mask)
+        except Exception as e:
+            logging.warning(f"Failed to save debug images for {field_name}: {e}")
+        # --- END DEBUG ---
+
+        # 5. Compare the count of new pixels with the threshold.
+        if change_in_pixels < threshold:
+            result["status"] = "DEFICIENT"
+            result["message"] = f"New pixel count insufficient ({change_in_pixels}, threshold: {threshold})"
+        else:
+            result["message"] = f"New pixel count OK ({change_in_pixels})"
+
     def _validate_with_ocr(self, result, original_roi, filled_roi, threshold, roi_info):
         # OCR은 컬러 이미지보다 회색조 이미지에서 더 잘 동작합니다.
         gray_filled = cv2.cvtColor(filled_roi, cv2.COLOR_BGR2GRAY)
 
         # ROI의 개별 설정을 가져와 OCR 실행
         # 전처리(이진화 등)는 각 OCR 서비스 구현체에 위임합니다.
-        ocr_config = roi_info.get('ocr_config')
+        ocr_config = roi_info.get('ocr_config', {})
+        if ocr_config is None: ocr_config = {}
+        ocr_config['field_name'] = result.get('field_name')
         clean_text = self.ocr_service.recognize_text(gray_filled, config=ocr_config)
 
         # --- DEBUG IMAGE SAVING (OCR 전용) ---
@@ -174,11 +219,7 @@ class ValidationVisionService:
             result["status"] = "DEFICIENT"
             result["message"] = f"OCR insufficient ({len(clean_text)} chars, threshold: {threshold})"
         else:
-            limit = 10
-            if len(clean_text) > limit:
-                result["message"] = f"OCR OK: '{clean_text[:limit]}...'"
-            else:
-                result["message"] = f"OCR OK: '{clean_text}'"
+            result["message"] = f"OCR OK: '{clean_text}'"
 
     def _validate_with_contour(self, result, original_roi, filled_roi, threshold):
         # ROI 경계에서 발생하는 미세한 정렬 오류를 제거하기 위해 양쪽 이미지 모두 크롭
@@ -225,18 +266,18 @@ class ValidationVisionService:
             result["message"] = f"Contour OK (Total Area: {total_area:.0f})"
 
     def _validate_with_ssim(self, result, original_roi, filled_roi, threshold):
-        # 1-2px 정도의 미세한 정렬 오류에 대한 강건성을 확보하기 위해 비교 전 블러 처리
         gray_original = cv2.cvtColor(original_roi, cv2.COLOR_BGR2GRAY)
         gray_filled = cv2.cvtColor(filled_roi, cv2.COLOR_BGR2GRAY)
 
-        blur_original = cv2.GaussianBlur(gray_original, (5, 5), 0)
-        blur_filled = cv2.GaussianBlur(gray_filled, (5, 5), 0)
+        # Otsu's Binarization to automatically find the optimal threshold
+        _, thresh_original = cv2.threshold(gray_original, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        _, thresh_filled = cv2.threshold(gray_filled, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
-        # SSIM 계산 시, 차이 이미지(diff)도 함께 받아옴
-        score, diff = ssim(blur_original, blur_filled, full=True)
-        
-        # SSIM의 diff 이미지는 0-1 범위의 float이므로 시각화를 위해 0-255 범위의 uint8로 변환
-        diff_img = (diff * 255).astype("uint8")
+        # Calculate pixel difference percentage
+        diff_img = cv2.absdiff(thresh_original, thresh_filled)
+        non_zero_count = np.count_nonzero(diff_img)
+        total_pixels = diff_img.size
+        change_percentage = (non_zero_count / total_pixels) * 100 if total_pixels > 0 else 0
 
         # --- DEBUG IMAGE SAVING ---
         try:
@@ -244,18 +285,19 @@ class ValidationVisionService:
             output_dir = "output/debug"
             os.makedirs(output_dir, exist_ok=True)
             field_name = result["field_name"]
-            cv2.imwrite(os.path.join(output_dir, f"{field_name}_1_original.png"), original_roi)
-            cv2.imwrite(os.path.join(output_dir, f"{field_name}_2_filled.png"), filled_roi)
-            cv2.imwrite(os.path.join(output_dir, f"{field_name}_3_ssim_diff.png"), diff_img)
+            cv2.imwrite(os.path.join(output_dir, f"{field_name}_ssim_1_original_otsu.png"), thresh_original)
+            cv2.imwrite(os.path.join(output_dir, f"{field_name}_ssim_2_filled_otsu.png"), thresh_filled)
+            cv2.imwrite(os.path.join(output_dir, f"{field_name}_ssim_3_pixel_diff.png"), diff_img)
         except Exception as e:
             logging.warning(f"Failed to save debug images for {field_name}: {e}")
         # --- END DEBUG ---
 
-        if score > (1 - threshold / 100.0):
+        # 'threshold' is the minimum percentage of pixels that must change
+        if change_percentage < threshold:
             result["status"] = "DEFICIENT"
-            result["message"] = f"SSIM score too high ({score:.3f}), no significant change."
+            result["message"] = f"Pixel change insufficient ({change_percentage:.2f}%, threshold: {threshold}%)"
         else:
-            result["message"] = f"SSIM OK (Score: {score:.3f})"
+            result["message"] = f"Pixel change OK ({change_percentage:.2f}%)"
 
     # --- 이미지 처리 헬퍼 메서드들 ---
     def _get_full_page_image(self, page, scale=2.0, grayscale=True):
