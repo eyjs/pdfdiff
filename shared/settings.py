@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 # shared 폴더에 있는 상수와 유틸리티를 가져옵니다.
 try:
     from shared.constants import *
-    from shared.utils import ConfigUtils, get_base_path
+    from shared.utils import ConfigUtils, get_base_path, get_bundle_path
     from shared.exceptions import *
 except ImportError:
     # 모듈 경로 문제 해결
@@ -20,7 +20,7 @@ except ImportError:
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
     from shared.constants import *
-    from shared.utils import ConfigUtils, get_base_path
+    from shared.utils import ConfigUtils, get_base_path, get_bundle_path
     from shared.exceptions import *
 
 
@@ -86,11 +86,18 @@ class EasyocrSettings:
     """EasyOCR 설정"""
     model_storage_directory: str = EASYOCR_MODEL_DIR
 
+@dataclass
+class ClovaSettings:
+    """Clova OCR 설정"""
+    api_url: str = ""
+    secret_key: str = ""
+
 class Settings:
     """애플리케이션 전역 설정 관리자"""
 
     def __init__(self, config_file: str = "settings.json"):
-        self.base_dir = get_base_path() # 공통 함수 사용
+        self.base_dir = get_base_path() # 사용자 데이터용 경로
+        bundle_dir = get_bundle_path() # 앱 리소스용 경로
         self.config_file = self.base_dir / config_file
 
         # 기본 설정 인스턴스
@@ -98,11 +105,14 @@ class Settings:
         self.ui = UISettings()
         self.validation = ValidationSettings()
         self.storage = StorageSettings()
-        self.ocr_engine_selection = OcrEngineSelectionSettings() # 추가
-        self.easyocr = EasyocrSettings() # 추가
-        self.easyocr.model_storage_directory = str(self.base_dir / EASYOCR_MODEL_DIR) # EasyOCR 모델 경로 절대 경로로 설정
+        self.ocr_engine_selection = OcrEngineSelectionSettings()
+        self.easyocr = EasyocrSettings()
+        self.clova = ClovaSettings()
+        
+        # 리소스 경로는 번들 경로를 기준으로 설정
+        self.easyocr.model_storage_directory = str(bundle_dir / EASYOCR_MODEL_DIR)
 
-        # 저장소 경로 설정 (get_base_path가 환경에 맞는 루트를 반환)
+        # 사용자 데이터 경로는 base 경로를 기준으로 설정
         self.storage.templates_file = str(self.base_dir / DEFAULT_TEMPLATE_FILE)
 
         # 추가 설정
@@ -128,7 +138,8 @@ class Settings:
             self._update_from_dict(self.tesseract, config.get("tesseract", {}))
             self._update_from_dict(self.ui, config.get("ui", {}))
             self._update_from_dict(self.validation, config.get("validation", {}))
-            self._update_from_dict(self.ocr_engine_selection, config.get("ocr_engine_selection", {})) # 추가
+            self._update_from_dict(self.ocr_engine_selection, config.get("ocr_engine_selection", {}))
+            self._update_from_dict(self.clova, config.get("clova", {}))
 
             easyocr_config = config.get("easyocr", {})
             easyocr_config.pop('model_storage_directory', None)  # 코드에서 설정한 절대 경로를 유지
@@ -154,8 +165,9 @@ class Settings:
                 "tesseract": self.tesseract.__dict__,
                 "ui": self.ui.__dict__,
                 "validation": self.validation.__dict__,
-                "ocr_engine_selection": self.ocr_engine_selection.__dict__, # 추가
-                "easyocr": self.easyocr.__dict__, # 추가
+                "ocr_engine_selection": self.ocr_engine_selection.__dict__,
+                "easyocr": self.easyocr.__dict__,
+                "clova": self.clova.__dict__,
                 "storage": self.storage.__dict__,
             }
             ConfigUtils.save_config(config, str(self.config_file))

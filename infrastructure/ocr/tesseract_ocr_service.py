@@ -8,7 +8,7 @@ import logging
 import cv2
 
 from domain.services.ocr_service import OcrService
-from shared.utils import get_base_path
+from shared.utils import get_bundle_path
 
 class TesseractOcrService(OcrService):
     """Tesseract를 사용한 OCR 서비스 구현체"""
@@ -16,10 +16,10 @@ class TesseractOcrService(OcrService):
     def __init__(self):
         """Tesseract 경로를 설정하고 초기화합니다."""
         try:
-            base_path = get_base_path()
+            bundle_path = get_bundle_path()
 
-            tesseract_exe = base_path / "resources" / "vendor" / "tesseract" / "tesseract.exe"
-            tessdata_dir = base_path / "resources" / "vendor" / "tesseract" / "tessdata"
+            tesseract_exe = bundle_path / "resources" / "vendor" / "tesseract" / "tesseract.exe"
+            tessdata_dir = bundle_path / "resources" / "vendor" / "tesseract" / "tessdata"
 
             if tesseract_exe.exists():
                 pytesseract.pytesseract.tesseract_cmd = str(tesseract_exe)

@@ -242,7 +242,9 @@ class AzureOcrService(OcrService):
         raise Exception(f"OCR 처리 시간 초과 ({self.timeout}초)")
 
     def _parse_read_result(self, result_data: dict, config: dict) -> str:
-        """Azure Read API 결과 파싱"""
+        """
+        Azure Read API 결과 파싱
+        """
 
         try:
             # 최신 API 응답 구조 처리

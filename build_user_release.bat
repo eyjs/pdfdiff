@@ -39,7 +39,7 @@ echo.
 echo [3/4] Building executable with PyInstaller...
 
 venv\Scripts\python.exe -m PyInstaller ^
-    --onedir ^
+    --onefile ^
     --windowed ^
     --name "PdfDiff" ^
     --distpath "release" ^
@@ -48,8 +48,7 @@ venv\Scripts\python.exe -m PyInstaller ^
     --add-data "resources;resources" ^
     --add-data "settings.json;." ^
     --add-data "templates.json;." ^
-    --add-data "C:\Users\USER\AppData\Local\Programs\Python\Python313\tcl;tcl" ^
-    --add-data "C:\Users\USER\AppData\Local\Programs\Python\Python313\Lib\tkinter;tkinter" ^
+    --add-data "C:\Users\USER\AppData\Local\Programs\Python\Python313\tcl;_tcl_data" ^
     --hidden-import=PIL ^
     --hidden-import=PIL.Image ^
     --hidden-import=app.controllers.validation_controller ^

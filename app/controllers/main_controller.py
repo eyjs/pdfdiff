@@ -4,11 +4,11 @@ import logging
 
 # Infrastructure Layer - 외부 기술 및 데이터 구현체
 from infrastructure.repositories.json_template_repository import JsonTemplateRepository
-from infrastructure.services.anchor_finding_service import AnchorFindingService
+from domain.services.anchor_finding_service import AnchorFindingService
 from infrastructure.repositories.fitz_document_repository import FitzDocumentRepository
 
 # Domain Layer - 핵심 비즈니스 로직 및 규칙
-from domain.services.template_service import TemplateService
+from app.services.template_service import TemplateService
 from shared.exceptions import DataIntegrityError
 
 # Application Layer - 이 파일 자신
@@ -85,6 +85,7 @@ class MainController:
             doc_repo=doc_repo,
             template_service=template_service
         )
-        view = ValidationWindow(validator_window, controller)
+        view = ValidationWindow(validator_window, controller, self)
         controller.view = view
+        controller.start_ui_queue_processing()
         controller.initialize_view()

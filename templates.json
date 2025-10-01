@@ -2057,5 +2057,146 @@
         "description": null,
         "created_at": null,
         "updated_at": null
+    },
+    {
+        "name": "OCR",
+        "original_pdf_path": "C:/Users/USER/Documents/네이트온 받은 파일/KB손보_비교 청약서.pdf",
+        "rois": {
+            "1": {
+                "page": 0,
+                "coords": [
+                    47.810089111328125,
+                    468.0941162109375,
+                    180.12173461914062,
+                    488.107666015625
+                ],
+                "method": "ocr",
+                "threshold": 2,
+                "anchor_coords": [
+                    60,
+                    523,
+                    180,
+                    563
+                ],
+                "ocr_config": {
+                    "psm": "7",
+                    "oem": "3",
+                    "lang": "kor+eng"
+                }
+            },
+            "2": {
+                "page": 0,
+                "coords": [
+                    53.36940002441406,
+                    490.3313903808594,
+                    186.79290771484375,
+                    513.6804809570312
+                ],
+                "method": "ocr",
+                "threshold": 2,
+                "anchor_coords": [
+                    60,
+                    518,
+                    180,
+                    558
+                ],
+                "ocr_config": {
+                    "psm": "7",
+                    "oem": "3",
+                    "lang": "kor+eng"
+                }
+            },
+            "3": {
+                "page": 0,
+                "coords": [
+                    44.47450256347656,
+                    518.1279296875,
+                    192.3522186279297,
+                    539.2533569335938
+                ],
+                "method": "ocr",
+                "threshold": 2,
+                "anchor_coords": [
+                    60,
+                    544,
+                    180,
+                    584
+                ],
+                "ocr_config": {
+                    "psm": "7",
+                    "oem": "3",
+                    "lang": "kor+eng"
+                }
+            },
+            "4": {
+                "page": 0,
+                "coords": [
+                    37.80332565307617,
+                    541.47705078125,
+                    203.47084045410156,
+                    563.7142944335938
+                ],
+                "method": "ocr",
+                "threshold": 2,
+                "anchor_coords": [
+                    60,
+                    688,
+                    180,
+                    728
+                ],
+                "ocr_config": {
+                    "psm": "7",
+                    "oem": "3",
+                    "lang": "kor+eng"
+                }
+            },
+            "5": {
+                "page": 0,
+                "coords": [
+                    42.25077819824219,
+                    559.266845703125,
+                    193.46408081054688,
+                    590.3989868164062
+                ],
+                "method": "ocr",
+                "threshold": 2,
+                "anchor_coords": [
+                    318,
+                    519,
+                    438,
+                    559
+                ],
+                "ocr_config": {
+                    "psm": "7",
+                    "oem": "3",
+                    "lang": "kor+eng"
+                }
+            },
+            "6": {
+                "page": 0,
+                "coords": [
+                    37.80332565307617,
+                    64.48802947998047,
+                    555.9312744140625,
+                    800.541015625
+                ],
+                "method": "ocr",
+                "threshold": 2,
+                "anchor_coords": [
+                    420,
+                    0,
+                    540,
+                    40
+                ],
+                "ocr_config": {
+                    "psm": "7",
+                    "oem": "3",
+                    "lang": "kor+eng"
+                }
+            }
+        },
+        "description": null,
+        "created_at": null,
+        "updated_at": null
     }
 ]

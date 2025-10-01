@@ -30,6 +30,18 @@ def get_base_path() -> Path:
         return Path(__file__).resolve().parent.parent
 
 
+def get_bundle_path() -> Path:
+    """
+    PyInstaller 번들 내부의 리소스 경로를 찾기 위한 기본 경로를 반환합니다.
+    """
+    if hasattr(sys, '_MEIPASS'):
+        # PyInstaller 번들로 실행된 경우, _MEIPASS 임시 폴더를 반환합니다.
+        return Path(sys._MEIPASS)
+    else:
+        # 일반 .py 스크립트로 실행된 경우, 프로젝트 루트를 반환합니다.
+        return Path(__file__).resolve().parent.parent
+
+
 
 class FileUtils:
     """파일 관련 유틸리티"""

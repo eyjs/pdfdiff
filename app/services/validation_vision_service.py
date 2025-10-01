@@ -73,15 +73,26 @@ class ValidationVisionService:
             h, w, _ = filled_roi_color.shape
             original_roi_resized = cv2.resize(original_roi_color, (w, h))
 
+            # --- 추가: 테두리 노이즈 제거를 위한 ROI 침식(Erosion) ---
+            border_to_crop = 4  # 각 가장자리에서 잘라낼 픽셀 수
+            if h > border_to_crop * 2 and w > border_to_crop * 2:
+                original_roi_for_validation = original_roi_resized[border_to_crop:h-border_to_crop, border_to_crop:w-border_to_crop]
+                filled_roi_for_validation = filled_roi_color[border_to_crop:h-border_to_crop, border_to_crop:w-border_to_crop]
+            else:
+                # ROI가 너무 작으면 크롭하지 않음
+                original_roi_for_validation = original_roi_resized
+                filled_roi_for_validation = filled_roi_color
+
             # --- 4. 검증 로직 분기 ---
             if method == "ocr":
+                # OCR은 전체 영역을 봐야 하므로 크롭되지 않은 원본 이미지를 사용합니다.
                 self._validate_with_ocr(result, original_roi_resized, filled_roi_color, threshold, roi_info)
             elif method == "pixel_count":
-                self._validate_with_pixel_count(result, original_roi_resized, filled_roi_color, threshold)
+                self._validate_with_pixel_count(result, original_roi_for_validation, filled_roi_for_validation, threshold)
             elif method == "contour":
-                self._validate_with_contour(result, original_roi_resized, filled_roi_color, threshold)
+                self._validate_with_contour(result, original_roi_for_validation, filled_roi_for_validation, threshold)
             elif method == "ssim":
-                self._validate_with_ssim(result, original_roi_resized, filled_roi_color, threshold)
+                self._validate_with_ssim(result, original_roi_for_validation, filled_roi_for_validation, threshold)
             else:
                 result["status"] = "ERROR"
                 result["message"] = f"Unknown validation method: {method}"

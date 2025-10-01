@@ -125,9 +125,14 @@ class TemplateEditorWindow:
         if not self.current_rect:
             return
 
-        x1, y1, x2, y2 = self.canvas.coords(self.current_rect)
+        coords = self.canvas.coords(self.current_rect)
         self.canvas.delete(self.current_rect)
         self.current_rect = None
+
+        if not coords or len(coords) < 4:
+            return
+
+        x1, y1, x2, y2 = coords
 
         if abs(x1 - x2) < 5 or abs(y1 - y2) < 5:
             return

@@ -3,6 +3,8 @@
   "debug_enabled": false,
   "log_level": "INFO",
   "tesseract": {
+    "executable_path": "",
+    "tessdata_path": "",
     "languages": "kor+eng",
     "config_default": "--oem 3 --psm 6",
     "config_single_word": "--oem 3 --psm 8",
@@ -30,10 +32,14 @@
     "easyocr_gpu_enabled": false
   },
   "easyocr": {
-    "model_storage_directory": "resources/vendor/easyocr/models"
+    "model_storage_directory": "C:\\Users\\USER\\dev\\pdfdiff\\resources\\vendor\\easyocr\\models"
+  },
+  "clova": {
+    "api_url": "https://583008ok3i.apigw.ntruss.com/custom/v1/46522/bec413694542bb60f9a221b16cbf2d44b3800479241b20036369a58435649755/general",
+    "secret_key": "R01XQXJPbWFpeEdaZWVFSVF4cUlNbHZKZERtckhBQkc="
   },
   "storage": {
-
+    "templates_file": "C:\\Users\\USER\\dev\\pdfdiff\\templates.json",
     "output_directory": "output",
     "input_directory": "input",
     "resources_directory": "resources",

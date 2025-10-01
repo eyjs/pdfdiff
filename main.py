@@ -10,6 +10,10 @@ from app.gui.main_window import MainWindow
 from app.controllers.main_controller import MainController
 from shared.utils import LoggingUtils, get_base_path
 
+from app.gui.main_window import MainWindow
+from app.controllers.main_controller import MainController
+from shared.utils import LoggingUtils, get_base_path
+
 def setup_logging():
     """애플리케이션 전역 로거를 설정합니다."""
     log_dir = get_base_path() / "output" / "debug"

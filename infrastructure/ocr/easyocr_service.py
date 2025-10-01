@@ -160,7 +160,12 @@ class EasyOCRService(OcrService):
 
                     field_name = config.get('field_name', 'unknown_field')
                     filename = f"{field_name}_easyocr_output.png"
-                    cv2.imwrite(os.path.join(output_dir, filename), debug_image_color)
+                    filepath = os.path.join(output_dir, filename)
+                    cv2.imwrite(filepath, debug_image_color)
+
+                    # 생성된 디버그 이미지 경로를 임시 파일에 저장
+                    with open(os.path.join(output_dir, "last_ocr_debug_image.txt"), "w") as f:
+                        f.write(os.path.abspath(filepath))
                 except Exception as e:
                     logging.warning(f"Failed to save EasyOCR debug image for field {config.get('field_name', 'unknown')}: {e}")
             # --- END DEBUG ---

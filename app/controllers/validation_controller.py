@@ -2,18 +2,21 @@ from tkinter import filedialog, messagebox
 import os
 import datetime
 import logging
+import threading
+from queue import Queue, Empty
 
 import fitz
 from PIL import Image
 from shared.exceptions import DocumentCorruptedError
 
 # Infrastructure Layer - OCR 서비스 및 검증 서비스
-from infrastructure.services.validation_vision_service import ValidationVisionService
-from infrastructure.services.tesseract_ocr_service import TesseractOcrService
+from app.services.validation_vision_service import ValidationVisionService
+from infrastructure.ocr.tesseract_ocr_service import TesseractOcrService
+from infrastructure.ocr.clova_api import ClovaOcrService
 
 # EasyOCR 통합 서비스
 try:
-    from infrastructure.services.easyocr_service import EasyOCRService
+    from infrastructure.ocr.easyocr_service import EasyOCRService
     EASYOCR_AVAILABLE = True
 except ImportError:
     EASYOCR_AVAILABLE = False
@@ -50,57 +53,106 @@ class ValidationController:
         self.pan_start_x = 0
         self.pan_start_y = 0
 
+        # 로그 메시지 캐시
+        self.log_messages = []
+
+        # 스레드 안전 UI 업데이트용 큐
+        self.ui_queue = Queue()
+
+    def start_ui_queue_processing(self):
+        if self.view and self.view.root:
+            self.view.root.after(100, self._process_ui_queue)
+
     def initialize_view(self):
         self.load_templates()
 
+    def log(self, message: str):
+        """컨트롤러에 로그를 기록하고 UI 업데이트를 요청합니다."""
+        self.log_messages.append(message)
+        self._queue_ui_update(self.view.log, message)
+
+    def clear_logs(self):
+        """컨트롤러와 뷰의 로그를 모두 지웁니다."""
+        self.log_messages.clear()
+        self._queue_ui_update(self.view.clear_log)
+
+    def _process_ui_queue(self):
+        try:
+            while True:
+                callback, args, kwargs = self.ui_queue.get_nowait()
+                callback(*args, **kwargs)
+        except Empty:
+            pass
+        finally:
+            if self.view and self.view.root:
+                self.view.root.after(100, self._process_ui_queue)
+
+    def _queue_ui_update(self, callback, *args, **kwargs):
+        self.ui_queue.put((callback, args, kwargs))
+
     def _create_ocr_service(self, engine_name: str):
         """사용자 선택에 따라 OCR 서비스를 동적으로 생성합니다."""
+        self.log(f"--- OCR 서비스 생성 시작 (요청: {engine_name}) ---")
         
         tesseract_service = TesseractOcrService()
 
         if engine_name == 'Tesseract':
-            logging.info("Tesseract 단독 서비스로 초기화합니다.")
+            self.log("Tesseract 단독 서비스로 초기화합니다.")
             return tesseract_service
         
         if EASYOCR_AVAILABLE:
             if engine_name == 'EasyOCR':
-                logging.info("EasyOCR 단독 서비스 초기화 중...")
+                self.log("EasyOCR 단독 서비스 초기화 중...")
                 try:
                     return EasyOCRService()
                 except Exception as e:
-                    logging.error(f"EasyOCR 초기화 실패: {e}. Tesseract로 대체합니다.")
-                    messagebox.showwarning("EasyOCR 실패", "EasyOCR 초기화에 실패했습니다. Tesseract 엔진으로 대체하여 실행합니다.")
+                    self.log(f"EasyOCR 초기화 실패: {e}. Tesseract로 대체합니다.")
+                    self._queue_ui_update(messagebox.showwarning, "EasyOCR 실패", "EasyOCR 초기화에 실패했습니다. Tesseract 엔진으로 대체하여 실행합니다.")
                     return tesseract_service
         
-        if engine_name != 'Tesseract':
-            logging.warning(f"'{engine_name}'은(는) 유효한 OCR 엔진이 아니거나 EasyOCR을 사용할 수 없습니다. Tesseract를 사용합니다.")
-            if not EASYOCR_AVAILABLE:
-                 messagebox.showwarning("EasyOCR 없음", "EasyOCR이 설치되지 않았습니다. Tesseract 엔진으로 실행합니다.")
+        if engine_name == 'Clova':
+            self.log("Clova OCR 서비스 초기화 시도...")
+            try:
+                service = ClovaOcrService()
+                self.log("Clova OCR 서비스 초기화 성공.")
+                return service
+            except Exception as e:
+                self.log(f"Clova OCR 초기화 중 예외 발생: {e}. Tesseract로 대체합니다.")
+                self._queue_ui_update(messagebox.showwarning, "Clova OCR 실패", f"Clova OCR 초기화에 실패했습니다: {e}. Tesseract 엔진으로 대체하여 실행합니다.")
+                return tesseract_service
+
+        self.log(f"'{engine_name}'에 해당하는 OCR 엔진을 찾지 못했거나 사용할 수 없습니다. Tesseract를 사용합니다.")
         return tesseract_service
 
     def run_validation(self):
-        self.view.clear_log()
-        self.view.log(f"'{self.view.template_var.get()}' 템플릿으로 검증을 시작합니다.")
+        self.clear_logs()
+        self.log(f"'{self.view.template_var.get()}' 템플릿으로 검증을 시작합니다.")
+        self._queue_ui_update(self.view.update_button_state, False)
+        self._queue_ui_update(self.view.update_save_button_state, False)
 
-        # 1. UI에서 선택된 OCR 엔진 이름 가져오기
         selected_engine = self.view.ocr_engine_var.get()
-        self.view.log(f"선택된 OCR 엔진: {selected_engine}")
+        
+        thread = threading.Thread(target=self._threaded_validation, args=(selected_engine,))
+        thread.daemon = True
+        thread.start()
 
-        # 2. 선택된 이름에 맞는 서비스 동적 생성
+    def _threaded_validation(self, selected_engine):
         try:
+            self.log(f"선택된 OCR 엔진: {selected_engine}")
+
             ocr_service = self._create_ocr_service(selected_engine)
             vision_service = ValidationVisionService(ocr_service=ocr_service)
             validation_service = ValidationService(self.doc_repo, vision_service)
+            
+            if self.mode == "파일":
+                self._run_single_file_validation(validation_service)
+            else:
+                self._run_folder_validation(validation_service)
         except Exception as e:
-            self.view.log(f"🔥 서비스 초기화 중 심각한 오류 발생: {e}")
-            messagebox.showerror("오류", f"서비스를 초기화하는 중 오류가 발생했습니다: {e}")
-            return
-
-        # 3. 검증 모드에 따라 실행
-        if self.mode == "파일":
-            self._run_single_file_validation(validation_service)
-        else:
-            self._run_folder_validation(validation_service)
+            self.log(f"🔥 검증 중 심각한 오류 발생: {e}")
+            self._queue_ui_update(messagebox.showerror, "오류", f"검증 중 오류가 발생했습니다: {e}")
+        finally:
+            self._queue_ui_update(self.view.update_button_state, True)
 
     def _run_single_file_validation(self, validation_service):
         try:
@@ -110,7 +162,7 @@ class ValidationController:
                 progress_callback=self._progress_callback
             )
             self.target_filename = os.path.basename(self.target_path)
-            self.view.log("="*50 + "\n상세 검증 결과:")
+            self.log("="*50 + "\n상세 검증 결과:")
             self._log_results(self.last_results)
 
             annotated_pdf_bytes = validation_service.create_annotated_pdf(
@@ -127,8 +179,8 @@ class ValidationController:
             )
 
             if not self.original_doc or len(self.original_doc) == 0:
-                messagebox.showerror("PDF 로드 오류", "원본 PDF 파일을 로드할 수 없거나 페이지가 없습니다. 템플릿 설정을 확인해주세요.")
-                self.view.update_save_button_state(False)
+                self._queue_ui_update(messagebox.showerror, "PDF 로드 오류", "원본 PDF 파일을 로드할 수 없거나 페이지가 없습니다. 템플릿 설정을 확인해주세요.")
+                self._queue_ui_update(self.view.update_save_button_state, False)
                 return
 
             self.current_page_num = 0
@@ -138,21 +190,21 @@ class ValidationController:
             self.zoom = min(zoom_x, zoom_y) * 0.98
             self.pan_x, self.pan_y = 0, 0
 
-            self.render_docs()
-            self.view.update_save_button_state(True)
+            self._queue_ui_update(self.render_docs)
+            self._queue_ui_update(self.view.update_save_button_state, True)
 
         except DocumentCorruptedError as e:
-            messagebox.showerror("PDF 로드 실패", f"PDF 파일을 로드하는 중 오류가 발생했습니다: {e}")
-            self.view.update_save_button_state(False)
+            self._queue_ui_update(messagebox.showerror, "PDF 로드 실패", f"PDF 파일을 로드하는 중 오류가 발생했습니다: {e}")
+            self._queue_ui_update(self.view.update_save_button_state, False)
         except Exception as e:
-            self.view.log(f"🔥 검증 중 심각한 오류 발생: {e}")
-            messagebox.showerror("오류", f"검증 중 오류가 발생했습니다: {e}")
-            self.view.update_save_button_state(False)
+            self.log(f"🔥 검증 중 심각한 오류 발생: {e}")
+            self._queue_ui_update(messagebox.showerror, "오류", f"검증 중 오류가 발생했습니다: {e}")
+            self._queue_ui_update(self.view.update_save_button_state, False)
 
     def _run_folder_validation(self, validation_service):
         pdf_files = [f for f in os.listdir(self.target_path) if f.lower().endswith('.pdf')]
         if not pdf_files:
-            self.view.log("폴더에 검증할 PDF 파일이 없습니다.")
+            self.log("폴더에 검증할 PDF 파일이 없습니다.")
             return
 
         template_name = self.view.template_var.get()
@@ -162,15 +214,15 @@ class ValidationController:
         os.makedirs(pass_dir, exist_ok=True)
         os.makedirs(fail_dir, exist_ok=True)
 
-        self.view.log(f"결과는 '{os.path.abspath(base_output_dir)}' 폴더에 저장됩니다.")
+        self.log(f"결과는 '{os.path.abspath(base_output_dir)}' 폴더에 저장됩니다.")
 
         success_count, fail_count = 0, 0
         total = len(pdf_files)
 
         for i, filename in enumerate(pdf_files):
             filepath = os.path.join(self.target_path, filename)
-            self.view.update_progress(i + 1, total)
-            self.view.log(f"[{i+1}/{total}] '{filename}' 검증 중...")
+            self._queue_ui_update(self.view.update_progress, i + 1, total)
+            self.log(f"[{i+1}/{total}] '{filename}' 검증 중...")
 
             try:
                 results = validation_service.validate_document(self.selected_template, filepath)
@@ -180,12 +232,12 @@ class ValidationController:
 
                 if is_pass:
                     success_count += 1
-                    self.view.log("  -> ✅ 통과.")
+                    self.log("  -> ✅ 통과.")
                     output_path = os.path.join(pass_dir, filename)
                 else:
                     fail_count += 1
                     deficient_count = sum(1 for r in results if r['status'] != 'OK')
-                    self.view.log(f"  -> ❌ 미흡 ({deficient_count}개 항목).")
+                    self.log(f"  -> ❌ 미흡 ({deficient_count}개 항목).")
                     output_path = os.path.join(fail_dir, filename)
 
                 with open(output_path, "wb") as f:
@@ -193,11 +245,10 @@ class ValidationController:
 
             except Exception as e:
                 fail_count += 1
-                self.view.log(f"  -> 🔥 오류 발생: {e}")
+                self.log(f"  -> 🔥 오류 발생: {e}")
 
-        self.view.log("="*50 + f"\n일괄 검증 완료! (성공: {success_count}, 실패/오류: {fail_count})")
+        self.log("="*50 + f"\n일괄 검증 완료! (성공: {success_count}, 실패/오류: {fail_count})")
 
-    # --- 이하 기존 메서드들 (load_templates, on_template_selected 등) ---
     def load_templates(self):
         try:
             names = self.template_service.get_all_template_names()
@@ -206,7 +257,7 @@ class ValidationController:
                 self.view.template_combo.current(0)
                 self.on_template_selected()
         except Exception as e:
-            self.view.log(f"템플릿 로드 오류: {e}")
+            self.log(f"템플릿 로드 오류: {e}")
 
     def on_template_selected(self, event=None):
         name = self.view.template_var.get()
@@ -215,7 +266,7 @@ class ValidationController:
             self.selected_template = self.template_service.load_template(name)
             self._update_ui_state()
         except Exception as e:
-            self.view.log(f"'{name}' 템플릿 로드 실패: {e}")
+            self.log(f"'{name}' 템플릿 로드 실패: {e}")
 
     def switch_mode(self, mode):
         self.mode = mode
@@ -239,7 +290,7 @@ class ValidationController:
 
     def _update_ui_state(self):
         is_ready = self.selected_template and self.target_path
-        self.view.update_button_state(is_ready)
+        self._queue_ui_update(self.view.update_button_state, is_ready)
 
     def save_result_pdf(self):
         if not self.annotated_doc or not self.last_results:
@@ -258,13 +309,13 @@ class ValidationController:
             messagebox.showerror("저장 실패", f"결과를 저장하는 중 오류가 발생했습니다:\n{e}")
 
     def _progress_callback(self, message, current, total):
-        self.view.log(message)
-        self.view.update_progress(current, total)
+        self.log(message)
+        self._queue_ui_update(self.view.update_progress, current, total)
 
     def _log_results(self, results):
         for result in results:
             icon = "✅" if result['status'] == 'OK' else "❌"
-            self.view.log(f"  {icon} [{result['field_name']}]: {result['message']}")
+            self.log(f"  {icon} [{result['field_name']}]: {result['message']}")
 
     # --- PDF Viewer Control Methods ---
     def _get_display_matrix(self):
@@ -282,6 +333,10 @@ class ValidationController:
         return screen_x0, screen_y0, screen_x1, screen_y1
 
     def render_docs(self):
+        if threading.current_thread() is not threading.main_thread():
+            self._queue_ui_update(self.render_docs)
+            return
+            
         if not self.original_doc or not self.annotated_doc:
             return
 
@@ -351,9 +406,40 @@ class ValidationController:
         canvas_width = self.view.left_canvas.winfo_width()
         canvas_height = self.view.left_canvas.winfo_height()
         if x_offset is not None:
-            self.pan_x = -x_offset * (total_width - canvas_width)
+            if total_width > canvas_width:
+                self.pan_x = -x_offset * (total_width - canvas_width)
+            else:
+                self.pan_x = 0
         if y_offset is not None:
-            self.pan_y = -y_offset * (total_height - canvas_height)
+            if total_height > canvas_height:
+                self.pan_y = -y_offset * (total_height - canvas_height)
+            else:
+                self.pan_y = 0
+        self.render_docs()
+
+    def scroll_by(self, dx, dy):
+        if not self.original_doc: return
+
+        self.pan_x += dx
+        self.pan_y += dy
+
+        # Clamp pan_x and pan_y
+        page = self.original_doc[self.current_page_num]
+        total_width = page.rect.width * self.zoom
+        total_height = page.rect.height * self.zoom
+        canvas_width = self.view.left_canvas.winfo_width()
+        canvas_height = self.view.left_canvas.winfo_height()
+
+        if total_width > canvas_width:
+            self.pan_x = max(canvas_width - total_width, min(self.pan_x, 0))
+        else:
+            self.pan_x = 0
+
+        if total_height > canvas_height:
+            self.pan_y = max(canvas_height - total_height, min(self.pan_y, 0))
+        else:
+            self.pan_y = 0
+
         self.render_docs()
 
     def prev_page(self):
